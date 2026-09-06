@@ -1,0 +1,7 @@
+# Dépendances Python du pipeline R&D (entraînement RL) — KidCAD-Pro-IA
+# ⚠️ Non requises pour faire tourner l'application (inférence = moteur TS embarqué).
+torch>=2.2
+numpy
+tqdm
+matplotlib
+tensorboard

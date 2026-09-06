@@ -1,0 +1,62 @@
+# =============================================================================
+# KidCAD-Pro-IA — Hyperparamètres d'entraînement : OPTIMISEUR DE VIAS
+# Pipeline R&D Python — NON requis pour l'inférence (moteur TS déterministe :
+# optimiseur de réduction de vias post-routage + rip-up & reroute).
+# Sortie attendue : training/optimizer/model_v1.pt
+# =============================================================================
+
+run:
+  name: optimizer-ppo-v1
+  device: cpu
+  seed: 42
+  log_dir: training/optimizer/logs
+  checkpoint_dir: training/optimizer
+  checkpoint_every_iters: 20
+  eval_every_iters: 5
+
+environment:
+  # L'optimiseur reçoit un layout déjà routé et décide, via par via,
+  # de tenter une suppression (re-route local sans via) ou de le garder.
+  grid_h: 32
+  grid_w: 32
+  num_layers: 2
+  routing_grid_mm: 0.635
+  max_vias_per_episode: 64
+  max_steps_factor: 8
+
+algorithm:
+  type: ppo
+  lr: 0.0001            # LR plus faible : affinage d'un comportement existant
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.15    # clipping serré : peu d'écart à la politique initiale
+  entropy_coef: 0.005
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  epochs: 4
+  batch_size: 512
+  rollout_steps: 1024
+
+model:
+  type: actor_critic_mlp
+  hidden_dim: 128
+
+reward:
+  # Chaque via supprimé = +bonus ; chaque net cassé = grosse pénalité
+  via_removed_bonus: 3.0
+  net_broken_penalty: 50.0
+  step_penalty: 0.01
+  drc_violation_penalty: 25.0
+  # Rappel des règles DRC à préserver après optimisation
+  drc_min_track_width: 0.25
+  drc_min_clearance: 0.2
+  drc_min_via_drill: 0.35
+  drc_min_via_diameter: 0.7
+  drc_edge_clearance: 0.3
+
+training:
+  iters: 400
+  save_best_metric: eval/via_reduction_pct
+  eval:
+    layouts: 20
+    deterministic: true

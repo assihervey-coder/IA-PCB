@@ -1,0 +1,40 @@
+KidCAD-Pro-IA — Licence
+
+Copyright (C) 2025 KidCAD-Pro-IA Contributors
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU Affero General Public License for more details.
+
+You should have received a copy of the GNU Affero General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+
+--------------------------------------------------------------------------------
+
+NOTE (FRANÇAIS) — Texte complet de la licence :
+
+Le texte intégral et officiel de la GNU Affero General Public License v3.0
+(AGPL-3.0) est disponible sur https://www.gnu.org/licenses/agpl-3.0.txt
+et sur https://www.gnu.org/licenses/#AGPL.
+
+Il n'est pas reproduit intégralement dans ce fichier pour des raisons de
+taille ; en publiant, redistribuant ou hébergeant ce logiciel, vous vous
+engagez à respecter les termes complets de la AGPL-3.0 ci-dessus mentionnée,
+notamment :
+
+  - la fourniture du code source à tout destinataire du logiciel (section 6) ;
+  - l'obligation, pour toute version MODIFIÉE exécutée sur un serveur réseau
+    et interagissant à distance avec les utilisateurs, de proposer à ceux-ci
+    le code source correspondant (section 13, clause « Affero ») ;
+  - la conservation des avis de copyright et de licence (sections 4 et 5).
+
+Pour obtenir une copie papier du texte de la licence :
+  Free Software Foundation, Inc.
+  51 Franklin Street, Fifth Floor
+  Boston, MA 02110-1301, USA

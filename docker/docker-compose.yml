@@ -1,0 +1,95 @@
+# =============================================================================
+# KidCAD-Pro-IA — Docker Compose
+# Usage : docker compose -f docker/docker-compose.yml up --build
+#   app       → http://localhost:3000 (Next.js + Prisma/SQLite)
+#   ai-engine → http://localhost:3010 (service IA socket.io, Bun)
+#   (optionnel) nginx reverse proxy — voir bloc commenté plus bas
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Application principale : Next.js 16 (API REST + frontend, monolithe DDD)
+  # ---------------------------------------------------------------------------
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: kidcad-app
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: "3000"
+      # Chemin relatif au dossier db/ du conteneur (volume ci-dessous)
+      DATABASE_URL: "file:../db/custom.db"
+    volumes:
+      # La base SQLite persiste sur l'hôte (./db/custom.db)
+      - ../db:/app/db
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    depends_on:
+      ai-engine:
+        condition: service_healthy
+    networks:
+      - kidcad
+
+  # ---------------------------------------------------------------------------
+  # Mini-service IA : socket.io (Bun), port 3010 — jobs ai:place / ai:route
+  # Analogue du service gRPC prévu ; le code est monté pour itérer sans rebuild.
+  # ---------------------------------------------------------------------------
+  ai-engine:
+    image: oven/bun:1
+    container_name: kidcad-ai-engine
+    working_dir: /srv/ai-engine
+    command: bun run index.ts
+    volumes:
+      - ../mini-services/ai-engine:/srv/ai-engine
+    ports:
+      - "3010:3010"
+    environment:
+      NODE_ENV: production
+      PORT: "3010"
+    healthcheck:
+      # /api/health côté service IA (socket.io expose aussi un ping HTTP)
+      test:
+        - CMD
+        - bun
+        - -e
+        - "fetch('http://127.0.0.1:3010/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+    networks:
+      - kidcad
+
+  # ---------------------------------------------------------------------------
+  # OPTIONNEL — Reverse proxy nginx de production (configs/production/nginx.conf)
+  # Décommenter pour servir http://localhost/ → app:3000 et /socket.io/ → ai-engine:3010
+  # ---------------------------------------------------------------------------
+  # nginx:
+  #   image: nginx:1.27-alpine
+  #   container_name: kidcad-nginx
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ../configs/production/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+  #   depends_on:
+  #     app:
+  #       condition: service_healthy
+  #     ai-engine:
+  #       condition: service_healthy
+  #   networks:
+  #     - kidcad
+
+networks:
+  kidcad:
+    driver: bridge

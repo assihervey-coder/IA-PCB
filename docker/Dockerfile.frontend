@@ -1,0 +1,49 @@
+# syntax=docker/dockerfile:1
+# =============================================================================
+# KidCAD-Pro-IA — Variante FRONTEND SEULE
+# -----------------------------------------------------------------------------
+# Rôle : servir uniquement l'interface (Next.js standalone) derrière nginx, pour
+# les déploiements où l'API et le service IA tournent sur des hôtes séparés
+# (configs/production/nginx.conf fait alors le routage /api et /socket.io).
+# Le build reste "standalone" Next.js (SSR/api inclus) mais nginx devant gère
+# TLS, gzip et cache statique ; la base SQLite et le service IA ne sont PAS
+# dans cette image.
+# Build : docker build -f docker/Dockerfile.frontend -t kidcad-frontend .
+# =============================================================================
+
+# --- Base : Bun 1 -------------------------------------------------------------
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# --- deps ----------------------------------------------------------------------
+FROM base AS deps
+COPY package.json bun.lock ./
+RUN bun install --frozen-lockfile
+
+# --- builder : build Next.js standalone (frontend + éventuels route handlers) --
+FROM base AS builder
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+ENV DATABASE_URL="file:../db/custom.db"
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN bunx prisma generate && bun run build
+
+# --- runner : nginx sert le frontend -------------------------------------------
+FROM nginx:1.27-alpine AS runner
+
+# nginx.conf de production (reverse proxy vers app/ai-engine ou serving statique)
+COPY configs/production/nginx.conf /etc/nginx/conf.d/default.conf
+
+# Pages rendues / assets statiques du build standalone
+COPY --from=builder /app/.next/standalone /srv/frontend
+COPY --from=builder /app/.next/static /srv/frontend/.next/static
+COPY --from=builder /app/public /srv/frontend/public
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1
+
+# nginx sert /srv/frontend (voir nginx.conf) et proxifie /api vers app:3000
+CMD ["nginx", "-g", "daemon off;"]

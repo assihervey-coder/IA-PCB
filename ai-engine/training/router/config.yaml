@@ -1,0 +1,62 @@
+# =============================================================================
+# KidCAD-Pro-IA — Hyperparamètres d'entraînement : ROUTEUR (PPO)
+# Pipeline R&D Python — NON requis pour l'inférence (moteur TS déterministe).
+# Sortie attendue : training/router/model_v1.pt (voir ai-engine/README.md)
+# =============================================================================
+
+run:
+  name: router-ppo-v1
+  device: cpu            # pas de GPU requis pour cette taille de modèle
+  seed: 42
+  log_dir: training/router/logs
+  checkpoint_dir: training/router
+  checkpoint_every_iters: 20
+  eval_every_iters: 5
+
+environment:
+  # Environnement : src/environment/pcb_env.py (type Gymnasium)
+  grid_h: 32
+  grid_w: 32
+  num_layers: 2          # F.Cu / B.Cu
+  routing_grid_mm: 0.635 # grille 25 mil, alignée sur le moteur TS
+  max_steps_factor: 4    # max_steps = 4 * (h + w)
+  congestion_density: 0.15   # fraction de cases obstacles initiales
+
+algorithm:
+  type: ppo              # src/agents/ppo_agent.py
+  lr: 0.0003
+  gamma: 0.99
+  gae_lambda: 0.95
+  clip_epsilon: 0.2
+  entropy_coef: 0.01
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  epochs: 4
+  batch_size: 2048
+  rollout_steps: 4096
+  anneal_lr: true
+
+model:
+  type: actor_critic_mlp
+  hidden_dim: 256
+
+reward:                  # src/environment/reward.py (RewardConfig)
+  progress_scale: 1.0
+  via_penalty: 5.0
+  collision_penalty: 25.0
+  step_penalty: 0.05
+  give_up_penalty: 10.0
+  connect_bonus: 50.0
+  # Clearances DRC prises en compte dans l'évaluation
+  drc_min_track_width: 0.25
+  drc_min_clearance: 0.2
+  drc_min_via_drill: 0.35
+  drc_min_via_diameter: 0.7
+  drc_edge_clearance: 0.3
+
+training:
+  iters: 500             # itérations rollout+update
+  save_best_metric: eval/completion_rate
+  eval:
+    grids: 20
+    deterministic: true

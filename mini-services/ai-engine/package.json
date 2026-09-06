@@ -1,0 +1,13 @@
+{
+  "name": "kidcad-ai-engine-service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "KidCAD-Pro-IA — Microservice IA (socket.io, analogue gRPC) : placement, routage, optimisation",
+  "scripts": {
+    "dev": "bun --hot index.ts",
+    "start": "bun index.ts"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.3"
+  }
+}

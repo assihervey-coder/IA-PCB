@@ -1,0 +1,790 @@
+openapi: 3.0.3
+info:
+  title: KidCAD-Pro-IA API
+  description: |
+    API REST de KidCAD-Pro-IA, application de CAO électronique (schéma, PCB,
+    placement/routage IA, DRC/ERC, exports Gerber/STEP/STL/BOM).
+
+    Tous les chemins sont préfixés par `/api`. Le temps réel (jobs IA) est assuré
+    hors REST par socket.io sur le port 3010 via la gateway (voir
+    `docs/architecture/adr-003-formats-echanges.md`).
+  version: 1.0.0
+servers:
+  - url: http://localhost:3000/api
+    description: Développement local
+  - url: https://kidcad.example.com/api
+    description: Production (exemple)
+tags:
+  - name: Projects
+    description: Gestion des projets et de leur design
+  - name: Verification
+    description: Rapports DRC (Design Rule Check) et ERC (Electrical Rule Check)
+  - name: ImportExport
+    description: Import de netlists et exports de fabrication
+  - name: Library
+    description: Bibliothèque d'empreintes
+  - name: System
+    description: Santé des services
+
+paths:
+  /projects:
+    get:
+      tags: [Projects]
+      summary: Liste des projets
+      operationId: listProjects
+      responses:
+        '200':
+          description: Liste des projets (résumés)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProjectSummary'
+              example:
+                - id: prj_led_chaser_01
+                  name: Kit LED Chaser 10 voies
+                  description: Chenillard à NE555 + CD4017, 10 LEDs
+                  createdAt: '2025-01-15T08:30:00.000Z'
+                  updatedAt: '2025-01-15T10:12:45.000Z'
+                  componentsCount: 27
+                  netsCount: 27
+    post:
+      tags: [Projects]
+      summary: Création d'un projet
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 120
+                  example: Kit LED Chaser 10 voies
+                description:
+                  type: string
+                  example: Chenillard à NE555 + CD4017, 10 LEDs
+                template:
+                  type: string
+                  enum: [empty, led-chaser]
+                  default: empty
+                  description: Modèle de départ (vide ou projet démo chenillard)
+            example:
+              name: Kit LED Chaser 10 voies
+              description: Chenillard à NE555 + CD4017, 10 LEDs
+              template: led-chaser
+      responses:
+        '201':
+          description: Projet créé (design complet)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDesign'
+        '400':
+          description: Requête invalide (nom manquant, template inconnu)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: INVALID_TEMPLATE
+                message: "Template inconnu : 'blinky'. Valeurs acceptées : empty, led-chaser."
+
+  /projects/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      summary: Design complet d'un projet
+      operationId: getProject
+      responses:
+        '200':
+          description: Design complet (schéma, layout, règles)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDesign'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      tags: [Projects]
+      summary: Sauvegarde du design
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectDesign'
+      responses:
+        '200':
+          description: Design sauvegardé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDesign'
+        '400':
+          description: Design invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      tags: [Projects]
+      summary: Suppression du projet
+      operationId: deleteProject
+      responses:
+        '200':
+          description: Projet supprimé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted:
+                    type: boolean
+                    example: true
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /projects/{id}/drc:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Verification]
+      summary: Rapport Design Rule Check
+      description: >
+        Vérifie le layout courant contre les règles (largeur de piste min 0.25 mm,
+        isolation min 0.2 mm, via drill min 0.35 mm, via diamètre min 0.7 mm,
+        distance au bord 0.3 mm).
+      operationId: runDrc
+      responses:
+        '200':
+          description: Rapport DRC
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrcReport'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /projects/{id}/erc:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Verification]
+      summary: Rapport Electrical Rule Check
+      description: >
+        Vérifie la cohérence électrique du schéma : courts-circuits, nets flottants,
+        sorties en conflit, alimentations non connectées.
+      operationId: runErc
+      responses:
+        '200':
+          description: Rapport ERC
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErcReport'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /projects/{id}/import:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [ImportExport]
+      summary: Import d'une netlist
+      description: Remplace (ou fusionne) le netlist du projet depuis une netlist KiCad (s-expression) ou JSON.
+      operationId: importNetlist
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [format, content]
+              properties:
+                format:
+                  type: string
+                  enum: [kicad, json]
+                  example: kicad
+                content:
+                  type: string
+                  description: Contenu textuel de la netlist
+                  example: |
+                    (export (version "E") (design (source "led-chaser.kicad_sch"))
+                      (components (comp (ref "U1") (value "NE555") (footprint "Package_DIP:DIP-8_W7.62mm") (pins (pin (num "1") (name "GND"))))) ...)
+            example:
+              format: kicad
+              content: '(export (version "E") (design (source "led-chaser.kicad_sch")) ...)'
+      responses:
+        '200':
+          description: Netlist importée, design mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDesign'
+        '400':
+          description: Netlist non analysable ou format inconnu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                code: PARSE_ERROR
+                message: 'S-expression invalide : parenthèse non fermée à la ligne 12.'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /projects/{id}/export/{format}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - name: format
+        in: path
+        required: true
+        description: Format d'export souhaité
+        schema:
+          type: string
+          enum: [gerber, bom, step, stl, json, netlist-kicad]
+    get:
+      tags: [ImportExport]
+      summary: Export du design
+      description: |
+        - `gerber` : ZIP contenant les Gerber RS-274X (F.Cu, B.Cu, F.Mask, B.Mask, F.Silk, B.Silk, Edge.Cuts) + Excellon `.drl`
+        - `bom` : CSV (référence, valeur, empreinte, quantité)
+        - `step` : STEP AP214 simplifié (boîtes)
+        - `stl` : maillage de la plaque
+        - `json` : design natif KidCAD
+        - `netlist-kicad` : netlist KiCad (s-expression)
+      operationId: exportDesign
+      responses:
+        '200':
+          description: Fichier exporté
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+            text/csv:
+              schema:
+                type: string
+                format: binary
+            model/step:
+              schema:
+                type: string
+                format: binary
+            model/stl:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDesign'
+            text/plain:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Design non exportable (ex. layout vide pour un export gerber)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /footprints:
+    get:
+      tags: [Library]
+      summary: Bibliothèque d'empreintes
+      operationId: listFootprints
+      responses:
+        '200':
+          description: Liste des empreintes disponibles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Footprint'
+              example:
+                - id: DIP-8_W7.62mm
+                  name: DIP-8_W7.62mm
+                  padsCount: 8
+                  bodyWidthMm: 6.4
+                  bodyLengthMm: 9.6
+                - id: R_0805
+                  name: R_0805
+                  padsCount: 2
+                  bodyWidthMm: 1.25
+                  bodyLengthMm: 2.0
+
+  /health:
+    get:
+      tags: [System]
+      summary: État des services
+      operationId: getHealth
+      responses:
+        '200':
+          description: État du service principal et du moteur IA
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                    example: ok
+                  app:
+                    type: string
+                    example: up
+                  database:
+                    type: string
+                    example: up
+                  aiEngine:
+                    type: string
+                    example: up
+
+components:
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: Identifiant du projet
+      schema:
+        type: string
+        example: prj_led_chaser_01
+
+  schemas:
+    ProjectSummary:
+      type: object
+      description: Résumé d'un projet (liste)
+      properties:
+        id:
+          type: string
+          example: prj_led_chaser_01
+        name:
+          type: string
+          example: Kit LED Chaser 10 voies
+        description:
+          type: string
+          example: Chenillard à NE555 + CD4017, 10 LEDs
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        componentsCount:
+          type: integer
+          example: 27
+        netsCount:
+          type: integer
+          example: 27
+      required: [id, name, createdAt, updatedAt]
+
+    DesignRules:
+      type: object
+      description: Règles de conception (DRC) et grille de routage
+      properties:
+        minTrackWidth:
+          type: number
+          format: float
+          description: Largeur de piste minimale en mm
+          example: 0.25
+        minClearance:
+          type: number
+          format: float
+          description: Isolation minimale entre objets cuivre en mm
+          example: 0.2
+        minViaDrill:
+          type: number
+          format: float
+          description: Perçage de via minimal en mm
+          example: 0.35
+        minViaDiameter:
+          type: number
+          format: float
+          description: Diamètre de via minimal (pad) en mm
+          example: 0.7
+        edgeClearance:
+          type: number
+          format: float
+          description: Distance minimale au bord de carte en mm
+          example: 0.3
+        routingGrid:
+          type: number
+          format: float
+          description: Grille de routage en mm (25 mil)
+          example: 0.635
+      required: [minTrackWidth, minClearance, minViaDrill, minViaDiameter, edgeClearance]
+
+    Schematic:
+      type: object
+      description: Schéma électrique (composants, bornes, nets)
+      properties:
+        components:
+          type: array
+          items:
+            type: object
+            properties:
+              ref:
+                type: string
+                example: U1
+              value:
+                type: string
+                example: NE555
+              footprint:
+                type: string
+                example: Package_DIP:DIP-8_W7.62mm
+              position:
+                $ref: '#/components/schemas/Point'
+        nets:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                example: CLK
+              nodes:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    ref:
+                      type: string
+                      example: U1
+                    pin:
+                      type: string
+                      example: '3'
+
+    Layout:
+      type: object
+      description: Placement et routage du PCB
+      properties:
+        boardOutline:
+          $ref: '#/components/schemas/Rect'
+        placements:
+          type: array
+          items:
+            type: object
+            properties:
+              ref:
+                type: string
+                example: R1
+              position:
+                $ref: '#/components/schemas/Point'
+              rotationDeg:
+                type: number
+                example: 90
+              layer:
+                type: string
+                enum: [F.Cu, B.Cu]
+                example: F.Cu
+        tracks:
+          type: array
+          items:
+            type: object
+            properties:
+              net:
+                type: string
+                example: CLK
+              layer:
+                type: string
+                enum: [F.Cu, B.Cu]
+                example: F.Cu
+              widthMm:
+                type: number
+                example: 0.25
+              points:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Point'
+        vias:
+          type: array
+          items:
+            type: object
+            properties:
+              position:
+                $ref: '#/components/schemas/Point'
+              drillMm:
+                type: number
+                example: 0.35
+              diameterMm:
+                type: number
+                example: 0.7
+
+    ProjectDesign:
+      type: object
+      description: Design complet d'un projet
+      properties:
+        id:
+          type: string
+          example: prj_led_chaser_01
+        name:
+          type: string
+          example: Kit LED Chaser 10 voies
+        description:
+          type: string
+          example: Chenillard à NE555 + CD4017, 10 LEDs
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        schematicJson:
+          $ref: '#/components/schemas/Schematic'
+        layoutJson:
+          $ref: '#/components/schemas/Layout'
+        rulesJson:
+          $ref: '#/components/schemas/DesignRules'
+      required: [id, name, schematicJson, layoutJson, rulesJson]
+
+    DrcViolation:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Type de violation
+          example: MIN_TRACK_WIDTH
+        severity:
+          type: string
+          enum: [error, warning]
+          example: error
+        message:
+          type: string
+          example: 'Piste CLK sur F.Cu : largeur 0.20 mm < 0.25 mm requis.'
+        location:
+          $ref: '#/components/schemas/Point'
+        items:
+          type: array
+          description: Références des objets en conflit (net/ref)
+          items:
+            type: string
+          example: [CLK, GND]
+
+    DrcReport:
+      type: object
+      properties:
+        projectId:
+          type: string
+          example: prj_led_chaser_01
+        passed:
+          type: boolean
+          example: false
+        checkedAt:
+          type: string
+          format: date-time
+        rules:
+          $ref: '#/components/schemas/DesignRules'
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DrcViolation'
+      required: [passed, violations]
+
+    ErcViolation:
+      type: object
+      properties:
+        type:
+          type: string
+          description: Type de violation électrique
+          example: FLOATING_NET
+        severity:
+          type: string
+          enum: [error, warning]
+          example: warning
+        message:
+          type: string
+          example: 'Net RESET relié à une seule borne.'
+        items:
+          type: array
+          items:
+            type: string
+          example: [RESET, U2]
+
+    ErcReport:
+      type: object
+      properties:
+        projectId:
+          type: string
+          example: prj_led_chaser_01
+        passed:
+          type: boolean
+          example: true
+        checkedAt:
+          type: string
+          format: date-time
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ErcViolation'
+      required: [passed, violations]
+
+    AiJobOptions:
+      type: object
+      description: Options des jobs IA (placement, routage, optimisation) envoyés via socket.io
+      properties:
+        seed:
+          type: integer
+          description: Graine aléatoire (recuit simulé déterministe)
+          example: 42
+        annealingIterations:
+          type: integer
+          example: 20000
+        annealingTemperature:
+          type: number
+          format: float
+          example: 1000
+        routingGridMm:
+          type: number
+          format: float
+          description: Grille de routage en mm
+          example: 0.635
+        viaCost:
+          type: number
+          format: float
+          description: Pénalité d'utilisation d'un via dans le coût A*
+          example: 30
+        ripupReroutePasses:
+          type: integer
+          example: 5
+        optimizeVias:
+          type: boolean
+          example: true
+        defaultTrackWidthMm:
+          type: number
+          format: float
+          example: 0.25
+
+    Footprint:
+      type: object
+      description: Empreinte de la bibliothèque
+      properties:
+        id:
+          type: string
+          example: R_0805
+        name:
+          type: string
+          example: R_0805
+        padsCount:
+          type: integer
+          example: 2
+        bodyWidthMm:
+          type: number
+          format: float
+          example: 1.25
+        bodyLengthMm:
+          type: number
+          format: float
+          example: 2.0
+        pads:
+          type: array
+          items:
+            type: object
+            properties:
+              number:
+                type: string
+                example: '1'
+              position:
+                $ref: '#/components/schemas/Point'
+              size:
+                $ref: '#/components/schemas/Size'
+
+    Point:
+      type: object
+      properties:
+        x:
+          type: number
+          format: float
+          example: 12.7
+        y:
+          type: number
+          format: float
+          example: 5.08
+      required: [x, y]
+
+    Size:
+      type: object
+      properties:
+        widthMm:
+          type: number
+          format: float
+          example: 1.6
+        heightMm:
+          type: number
+          format: float
+          example: 0.9
+
+    Rect:
+      type: object
+      properties:
+        x:
+          type: number
+          format: float
+          example: 0
+        y:
+          type: number
+          format: float
+          example: 0
+        widthMm:
+          type: number
+          format: float
+          example: 65
+        heightMm:
+          type: number
+          format: float
+          example: 40
+
+    Error:
+      type: object
+      description: Erreur applicative (400/404/500)
+      properties:
+        code:
+          type: string
+          description: Code machine de l'erreur
+          example: PROJECT_NOT_FOUND
+        message:
+          type: string
+          description: Message lisible (français)
+          example: 'Projet introuvable : prj_inexistant'
+      required: [code, message]

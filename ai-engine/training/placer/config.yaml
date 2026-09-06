@@ -1,0 +1,58 @@
+# =============================================================================
+# KidCAD-Pro-IA — Hyperparamètres d'entraînement : PLACEUR (recuit simulé + RL)
+# Pipeline R&D Python — NON requis pour l'inférence (moteur TS déterministe :
+# simulated annealing minimisant HPWL + pénalités chevauchement).
+# Sortie attendue : training/placer/model_v1.pt
+# =============================================================================
+
+run:
+  name: placer-ppo-v1
+  device: cpu
+  seed: 42
+  log_dir: training/placer/logs
+  checkpoint_dir: training/placer
+  checkpoint_every_iters: 20
+  eval_every_iters: 5
+
+environment:
+  # Grille de placement (cases de 0.635 mm, alignée sur l'éditeur PCB)
+  grid_h: 40
+  grid_w: 40
+  routing_grid_mm: 0.635
+  max_components: 30
+  max_steps_factor: 6
+  # La récompense de placement évalue le HPWL (half-perimeter wire length)
+  hpwl_weight: 1.0
+  overlap_penalty: 20.0
+  edge_margin_mm: 2.0
+
+algorithm:
+  type: ppo
+  lr: 0.0003
+  gamma: 0.995          # horizon plus long : le score n'arrive qu'en fin de placement
+  gae_lambda: 0.97
+  clip_epsilon: 0.2
+  entropy_coef: 0.02    # plus exploratoire que le routeur
+  value_coef: 0.5
+  max_grad_norm: 0.5
+  epochs: 4
+  batch_size: 1024
+  rollout_steps: 2048
+
+model:
+  type: actor_critic_mlp
+  hidden_dim: 256
+
+reward:
+  # Récompense finale = −HPWL normalisé − pénalités de chevauchement
+  progress_scale: 0.0     # récompense principalement terminale
+  collision_penalty: 10.0
+  step_penalty: 0.0
+  connect_bonus: 100.0    # bonus final proportionnel à la qualité HPWL
+
+training:
+  iters: 800
+  save_best_metric: eval/hpwl_mm
+  eval:
+    designs: 20
+    deterministic: true

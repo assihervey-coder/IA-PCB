@@ -1,0 +1,31 @@
+// KidCAD-Pro-IA — Schéma Prisma (SQLite)
+// backend/internal/infrastructure/persistence/sql/migrations (équivalent)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Projet PCB — le design complet (schéma + layout + règles) est sérialisé en JSON
+/// (format natif KidCAD, analogue d'un fichier .kicad_pro).
+model Project {
+  id             String   @id @default(cuid())
+  name           String
+  description    String   @default("")
+  template       String   @default("empty") // "empty" | "led-chaser"
+  boardWidth     Float    @default(80) // mm
+  boardHeight    Float    @default(50) // mm
+  layers         Int      @default(2)
+  schematicJson  String   @default("{}") // SchematicData sérialisé
+  netsJson       String   @default("[]") // Net[] (netlist)
+  layoutJson     String   @default("{}") // LayoutData sérialisé
+  rulesJson      String   @default("{}") // DesignRules sérialisé
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([updatedAt])
+}
