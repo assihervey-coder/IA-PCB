@@ -351,3 +351,23 @@ Stage Summary:
 - Lecteur KiCad bicompatible (<=9 numéroté / >=10 par nom) ; pic_programmer 0 -> 111 nets ; round-trip complet prouvé fidèle sur 2 vraies cartes ; CI vert (57c0615)
 - 6 démos + 2 projets ROUNDTRIP visibles dans le project-manager
 - Restant : PAT GitHub à révoquer ; merger optionnel des segments collatéraux à l'import (cosmétique)
+
+---
+Task ID: 17
+Agent: Super Z (main)
+Task: « fusion des segments colinéaires à l'import » (option choisie par l'utilisateur)
+
+Work Log:
+- track_merge.go : mergeTracks — chaînage bidirectionnel des segments élémentaires (2 points) par extrémités partagées, clé (net, couche, largeur) ; simplifyCollinear — suppression des points intermédiaires strictement alignés (produit vectoriel ~0 ET même sens ; demi-tour conservé)
+- Sécurités topologiques : jonction (degré > 2) jamais traversée ; doublons géométriques jamais refermés (sinon aller-retour nul) ; boucle fermée émise avec point de clôture répété ; pistes multi-points et segments dégénérés passthrough
+- Intégré dans readKiCadPCB avant board.AddTrack ; l'A* en ligne n'est pas affecté (merge côté import seulement)
+- Pièges d'implémentation : type ep local remonté en mergePt (package) ; kicad.go re-flaggé gofmt après insertion mixte espaces/tabs -> gofmt -w
+- Tests track_merge_test.go (8, -race) : chaîne colinéaire, coude en L, jonction en T protégée, clés distinctes, doublons séparés, anneau fermé, demi-tour réel, intégration lecteur ; TestKicadWriterRoundTrip mis à jour — l'invariant géométrique du round-trip est la LONGUEUR DE CUIVRE (la granularité est volontairement réduite par la fusion)
+- Live : restart + re-seed (DB mémoire) ; round-trips re-vérifiés : DEMO3 longueur exacte 1730,0 mm / 353 vias, DEMO4 1814,2 mm / 382 vias — FIDÈLES ; granularité info : DEMO3 242->224 pistes, DEMO4 804 segments importés -> 199 pistes fusionnées
+- roundtrip_test.sh : critère de fidélité corrigé (longueur+vias+structure ; pistes/segments passent en informationnel)
+- CI : 3b5e4a9 success
+
+Stage Summary:
+- Import KiCad propre : pistes multi-points restaurées, colinéaires dédupliquées, topologie préservée ; round-trip toujours bit-fidèle en géométrie ; CI vert
+- 8 projets en ligne dont les 2 ROUNDTRIP de preuve
+- Restant : PAT GitHub à révoquer (sécurité) ; fusion éventuelle côté routeur A* (cosmétique symétrique)

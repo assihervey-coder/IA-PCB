@@ -69,18 +69,23 @@ def counts(pid):
         "components": st.get("components"),
         "nets": st.get("nets"),
         "pads": st.get("pads"),
-        "segments_elementaires": segs,
         "longueur_mm": round(length, 1),
         "vias": len(vias),
+        "_pistes": len(tr),
+        "_segments": segs,
     }
 a, b = counts(src), counts(dst)
 print(f"{'métrique':22} {'source':>10} {'ré-import':>10}  match")
 ok = True
-for k in ("components", "nets", "pads", "segments_elementaires", "longueur_mm", "vias"):
+for k in ("components", "nets", "pads", "longueur_mm", "vias"):
     va, vb = a.get(k), b.get(k)
     m = "OK" if va == vb else "DIFF"
     if va != vb: ok = False
     print(f"{k:22} {str(va):>10} {str(vb):>10}  {m}")
+# granularité (informationnel) : la fusion des colinéaires réduit
+# volontairement pistes/segments à l'import, la géométrie reste identique
+print(f"{'(info) pistes':22} {str(a.get('_pistes')):>10} {str(b.get('_pistes')):>10}  info")
+print(f"{'(info) segments':22} {str(a.get('_segments')):>10} {str(b.get('_segments')):>10}  info")
 print("\nROUND-TRIP :", "FIDÈLE ✓" if ok else "PERTE DÉTECTÉE ✗")
 EOF
 echo "projet round-trip : $NAME ($DST_PID)"
