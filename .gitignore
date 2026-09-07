@@ -71,3 +71,4 @@ ai-engine/training/**/logs/
 scripts/.bin/
 download/*.zip
 .cache/
+yahriacad-data/
