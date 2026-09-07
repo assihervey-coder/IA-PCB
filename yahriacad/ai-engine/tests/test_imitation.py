@@ -104,6 +104,9 @@ def test_save_load_roundtrip(tmp_path: Path) -> None:
     total = sum(int(row[4]) for row in data["meta"])
     assert total == len(data["actions"]) == len(data["steps"])
     # reconstruction depuis le npz == reconstruction depuis la demo en memoire
+    # (requiert torch : saute gracieusement sur le CI qui ne l'installe pas,
+    #  le roundtrip npz lui-meme reste verifie partout)
+    pytest.importorskip("torch")
     dataset = build_torch_dataset(data)
     assert len(dataset) == total
     obs, action = dataset[0]
