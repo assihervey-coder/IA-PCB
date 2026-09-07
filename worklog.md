@@ -63,3 +63,26 @@ Stage Summary:
 - Décisions: package proto renommé (cassé la compat wire avec v0.1.0 — assumé pré-lancement, stubs régénérés et validés); template racine rebrandé aussi (le repo GitHub affiche YahriaCad en page d'accueil)
 - Piège contourné: artefact d'affichage du shell avalant "[m" dans les sorties grep (diagnostiqué par od) — vérifications finales faites par od sur les octets réels (index + HEAD)
 - Reste: PAT GitHub à révoquer (rappel); renommage du repo GitHub IA-PCB → YahriaCad possible sur demande (API PATCH repos, l'ancienne URL redirige)
+
+---
+Task ID: 4
+Agent: Super Z (main)
+Task: Mise à jour dépôt GitHub + rename repo IA-PCB → YahriaCad via API + lot wow restant (routage interactif, intégration PyTorch)
+
+Work Log:
+- Bilan préalable : routage interactif de base (stratégie A*/RL + filtre de nets + jobs WS) et chargement PyTorch paresseux (checkpoint PPO, model_loaded) déjà livrés aux tâches 1-3 ; extension ciblée décidée
+- Routage interactif au net : bouton ⚡ par net dans la liste des nets de l'éditeur PCB (pcb-layout/page.tsx) -> POST /route {nets:[nom], strategy:"astar"} + sondage job 800 ms (plafond 60 s) + refreshLayout + toasts ; style .net-route-btn (globals.scss)
+- Intégration PyTorch complète : proto +2 RPC additives (GetModelInfo, ReloadModel ; messages ModelInfo/ReloadModelRequest/Response), stubs Go+Python régénérés via grpc_tools.protoc + plugins (sortie module=…:. depuis racine projet, piège de layout résolu)
+- Python : service.py +_torch_available/_checkpoint_stats/_model_info/GetModelInfo/ReloadModel (re-target checkpoint surchargé, modèle précédent conservé si échec, repli A* jamais perdu)
+- Go : port AIService étendu (ModelInfo, ReloadModel), struct layoutapp.ModelInfo, client gRPC implémenté, fallback unreachableAI + fakes (demo routeAllAI, intégration mockAI) mis à jour, handler rest/ai_handler.go, routes GET /api/v1/ai/model + POST /api/v1/ai/model/reload
+- Frontend : types AIModelInfo/AIModelReloadResult, api.getAIModel/reloadAIModel, panneau « Modèle RL (PyTorch) » dans la page Routage IA (badge chargé/absent, device, paramètres, mtime, bouton ⟳ Recharger)
+- Docs : guide-pack-wow §1.5 routage interactif + §1.6 modèle RL, contracts.md §12, README extensions v0.4, OpenAPI (2 routes, tags AI) — YAML validé
+- Validation : gofmt clean, go vet OK, go build OK, go test -race 11 pkgs OK, ruff OK, pytest 5/5, tsc --noEmit clean, tests réels GetModelInfo (device=none, astar sans torch) et ReloadModel (bogus -> modèle inchangé)
+- Rename repo GitHub : PATCH /repos/assihervey-coder/IA-PCB {"name":"YahriaCad"} -> full_name assihervey-coder/YahriaCad (ancienne URL IA-PCB redirige)
+- Remote mis à jour vers YahriaCad.git ; 2 commits poussés (f5ca2b9 worklog, aeb3f27 feat) ; tag v0.1.0 vérifié sur GitHub
+
+Stage Summary:
+- Livré : routage interactif « cliquer-et-router » dans l'éditeur, modèle RL PyTorch inspectable et rechargeable à chaud (REST + gRPC + UI), docs/OpenAPI à jour
+- Décisions : RPC gRPC additives (messages existants intacts), checkpoint path surchargeable côté moteur, échec de reload non destructif
+- Dépôt GitHub : https://github.com/assihervey-coder/YahriaCad (main = aeb3f27, tag v0.1.0)
+- Sécurité : PAT toujours exposé dans l'historique de chat — révoquer le token GitHub (rappel récurrent)
