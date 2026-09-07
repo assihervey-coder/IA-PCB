@@ -1,0 +1,801 @@
+     1→#!/usr/bin/env python3
+     2→"""Imitation learning (behavioral cloning) du routeur : le RL apprend de A*.
+     3→
+     4→L'expert deterministe :meth:`PCBRouteEnv.astar_route` joue chaque net sur la
+     5→carte ; chaque trajectoire (observation -> action experte) est enregistree
+     6→puis distillee dans le meme reseau acteur-critique que le PPO. Le checkpoint
+     7→produit est directement chargeable par ``src/service.py`` (meme format que
+     8→``train.py``), ce qui permet de mesurer l'ecart A* vs RL(BC) dans l'arene.
+     9→
+    10→Pourquoi l'imitation ? Le PPO explore depuis zero : sur une vraie carte, sa
+    11→politique errante consomme des milliers de pas par net (infereince CPU hors
+    12→budget). En clonant A*, la politique suit des quasi-chemins optimaux des le
+    13→premier essai : le nombre de pas d'inference chute d'un ordre de grandeur et
+    14→le score se rapproche de l'expert.
+    15→
+    16→Pipeline :
+    17→    1. dumper les entrees exactes d'une requete de routage reelle :
+    18→       YAHRIACAD_DUMP_ROUTE_INPUT=<dir> ai-server  (voir src/service.py)
+    19→    2. collecter les demonstrations :
+    20→       python3 imitation.py generate --input route_input.json \
+    21→           --out demos.npz --synthetic 8
+    22→    3. entrainer (cross-entropy sur les actions expertes) :
+    23→       python3 imitation.py train --demos demos.npz --out model_bc.pt
+    24→    4. evaluer hors-ligne puis en ligne (reload + arene) :
+    25→       python3 imitation.py eval --model model_bc.pt --input route_input.json
+    26→"""
+    27→
+    28→from __future__ import annotations
+    29→
+    30→import argparse
+    31→import json
+    32→import os
+    33→import random
+    34→import sys
+    35→import time
+    36→from pathlib import Path
+    37→
+    38→import numpy as np
+    39→
+    40→AI_ENGINE_ROOT = Path(__file__).resolve().parents[2]
+    41→REPO_ROOT = AI_ENGINE_ROOT.parents[0]
+    42→
+    43→for _path in (str(AI_ENGINE_ROOT), str(REPO_ROOT / "shared" / "gen" / "python")):
+    44→    if _path not in sys.path:
+    45→        sys.path.insert(0, _path)
+    46→
+    47→from src.environment.action_space import LAYER_MODES, MOVES, N_MODES  # noqa: E402
+    48→from src.environment.pcb_env import (  # noqa: E402
+    49→    Cell,
+    50→    EnvConfig,
+    51→    PCBRouteEnv,
+    52→    position_plane,
+    53→)
+    54→
+    55→# Actions de deplacement pur (dlayer = 0) : move_index * 3 + 0.
+    56→_MOVE_ACTION: dict[tuple[int, int], int] = {
+    57→    move: move_idx * N_MODES + LAYER_MODES.index(0) for move_idx, move in enumerate(MOVES)
+    58→}
+    59→# Actions de via pur : le composant move est ignore par env.step des que
+    60→# dlayer != 0 ; on encode donc les vias sur l'action "up + via-up/down".
+    61→_VIA_UP_ACTION = 0 * N_MODES + LAYER_MODES.index(1)
+    62→_VIA_DOWN_ACTION = 0 * N_MODES + LAYER_MODES.index(-1)
+    63→
+    64→
+    65→def encode_expert_action(dx: int, dy: int, dlayer: int) -> int | None:
+    66→    """Encode un pas A* ``(dx, dy, dlayer)`` en index d'action de l'env.
+    67→
+    68→    Les voisins A* sont soit un deplacement 4-connexe pur (``dlayer == 0``),
+    69→    soit un changement de couche pur (``dx == dy == 0``) ; tout autre delta
+    70→    n'a pas d'action correspondante et renvoie ``None``.
+    71→    """
+    72→    if dlayer != 0:
+    73→        if dx != 0 or dy != 0:
+    74→            return None
+    75→        return _VIA_UP_ACTION if dlayer > 0 else _VIA_DOWN_ACTION
+    76→    return _MOVE_ACTION.get((dx, dy))
+    77→
+    78→
+    79→# ---------------------------------------------------------------------------
+    80→# Collecte de demonstrations
+    81→# ---------------------------------------------------------------------------
+    82→
+    83→
+    84→def _route_order(env: PCBRouteEnv) -> list[int]:
+    85→    """Ordre de routage de :meth:`route_all` (nets courts d'abord)."""
+    86→    return sorted(
+    87→        range(env.n_nets),
+    88→        key=lambda i: (env._net_span_cells(i), env._nets[i].name),
+    89→    )
+    90→
+    91→
+    92→def _pack_planes(obs0, layer_count: int):
+    93→    """Pack les canaux statiques de l'observation (obstacles+source+cibles)."""
+    94→    static = obs0[: layer_count + 2] > 0.5
+    95→    return np.packbits(np.ascontiguousarray(static))
+    96→
+    97→
+    98→def collect_demos(
+    99→    board: dict,
+   100→    nets: list[dict],
+   101→    clearance_cells: int = 1,
+   102→    seed: int = 0,
+   103→    max_nets: int = 0,
+   104→    probes: int = 0,
+   105→) -> list[dict]:
+   106→    """Collecte une demonstration (trajectoire experte) par net routable.
+   107→
+   108→    Les nets sont routes dans l'ordre de :meth:`route_all` : chaque route A*
+   109→    est enregistree comme obstacle pour les suivants, donc chaque
+   110→    demonstration voit exactement le contexte de congestion sequentiel du
+   111→    routeur de production. Pour chaque net, la premiere jambe de A*
+   112→    (depart = pad central, cible = pad le plus proche) est rejouee pas a pas
+   113→    dans l'environnement : l'observation affichee avant chaque action est
+   114→    celle qu'un rollout glouton de production recueillerais.
+   115→
+   116→    Args:
+   117→        probes: pour chaque net, nombre de cellules libres aleatoires
+   118→            supplementaires etiquetees par le premier pas de leur propre
+   119→            chemin A* (le champ de reprise de l'expert). Sans elles, le BC
+   120→            ne voit que les etats de la trajectoire experte et une seule
+   121→            deviation hors-chemin compromet le rollout (erreurs composees).
+   122→
+   123→    Returns:
+   124→        Liste de dicts ``{"net", "layers", "h", "w", "planes", "steps",
+   125→        "actions"}`` ou ``planes`` est la representation packbits des canaux
+   126→        statiques et ``steps[i] = (x, y, layer)`` l'etat AVANT ``actions[i]``.
+   127→        Les sondes forment une entree supplementaire nommee ``<net>#probe``.
+   128→    """
+   129→    rng = random.Random(seed if seed else 12345)
+   130→    env = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=clearance_cells, seed=seed))
+   131→    order = _route_order(env)
+   132→    if max_nets and max_nets > 0:
+   133→        order = order[:max_nets]
+   134→
+   135→    demos: list[dict] = []
+   136→    for net_index in order:
+   137→        route = env.astar_route(net_index)  # enregistre les obstacles progressifs
+   138→        if not route.get("completed"):
+   139→            continue
+   140→        obs0 = env.reset(net_index)
+   141→        ep = env._episode
+   142→        if ep.start is None or not ep.targets:
+   143→            continue
+   144→        targets_all = list(ep.targets)  # intact : la marche retire le but atteint
+   145→        goal = min(targets_all, key=lambda t: (env._pad_dist(ep.start, t), t))
+   146→        path: list[Cell] | None = env._astar(net_index, ep.start, goal)
+   147→        if not path or len(path) < 2:
+   148→            continue
+   149→        planes = _pack_planes(obs0, env.layer_count)
+   150→        base = {
+   151→            "layers": env.layer_count,
+   152→            "h": env.grid_h,
+   153→            "w": env.grid_w,
+   154→            "planes": planes,
+   155→        }
+   156→
+   157→        steps: list[tuple[int, int, int]] = []
+   158→        actions: list[int] = []
+   159→        success = False
+   160→        info: dict = {}
+   161→        for k in range(len(path) - 1):
+   162→            x1, y1, l1 = path[k]
+   163→            x2, y2, l2 = path[k + 1]
+   164→            action = encode_expert_action(x2 - x1, y2 - y1, l2 - l1)
+   165→            if action is None:  # jamais produit par A* ; garde-fou
+   166→                break
+   167→            steps.append((ep.x, ep.y, ep.layer))
+   168→            actions.append(action)
+   169→            _obs, _reward, terminated, truncated, info = env.step(action)
+   170→            if truncated:
+   171→                break
+   172→            if terminated:
+   173→                success = True
+   174→                break
+   175→        if not success or not actions:
+   176→            continue
+   177→        entry = {"net": env._nets[net_index].name, **base, "steps": steps,
+   178→                 "actions": actions}
+   179→        demos.append(entry)
+   180→
+   181→        if probes > 0:
+   182→            free = env._free_mask(net_index)
+   183→            cells = np.argwhere(free)  # (N, 3) = (layer, y, x)
+   184→            if len(cells):
+   185→                chosen = rng.sample(range(len(cells)), min(probes, len(cells)))
+   186→                probe_steps: list[tuple[int, int, int]] = []
+   187→                probe_actions: list[int] = []
+   188→                for row in chosen:
+   189→                    layer, y, x = (int(v) for v in cells[row])
+   190→                    source = (x, y, layer)
+   191→                    goal_p = min(targets_all, key=lambda t: (env._pad_dist(source, t), t))
+   192→                    probe_path = env._astar(net_index, source, goal_p)
+   193→                    if not probe_path or len(probe_path) < 2:
+   194→                        continue
+   195→                    dx = probe_path[1][0] - source[0]
+   196→                    dy = probe_path[1][1] - source[1]
+   197→                    dl = probe_path[1][2] - source[2]
+   198→                    action = encode_expert_action(dx, dy, dl)
+   199→                    if action is None:
+   200→                        continue
+   201→                    # Sur-echantillonnage des cas difficiles : quand l'expert
+   202→                    # evite un obstacle (action != direction naive vers la
+   203→                    # cible), l'etat est repete 3 fois pour contrebalancer la
+   204→                    # dominance des pas en ligne droite — sinon la politique
+   205→                    # apprend la direction et fonce dans les murs.
+   206→                    dxg = goal_p[0] - source[0]
+   207→                    dyg = goal_p[1] - source[1]
+   208→                    repeats = 1
+   209→                    if dl == 0 and (dxg or dyg):
+   210→                        if abs(dxg) >= abs(dyg) and dxg != 0:
+   211→                            naive = (1 if dxg > 0 else -1, 0)
+   212→                        else:
+   213→                            naive = (0, 1 if dyg > 0 else -1)
+   214→                        repeats = 3 if (dx, dy) != naive else 1
+   215→                    for _ in range(repeats):
+   216→                        probe_steps.append(source)
+   217→                        probe_actions.append(action)
+   218→                if probe_actions:
+   219→                    demos.append(
+   220→                        {"net": f"{env._nets[net_index].name}#probe", **base,
+   221→                         "steps": probe_steps, "actions": probe_actions}
+   222→                    )
+   223→    return demos
+   224→
+   225→
+   226→def collect_dagger(
+   227→    model_path: str,
+   228→    board: dict,
+   229→    nets: list[dict],
+   230→    clearance_cells: int = 1,
+   231→    seed: int = 0,
+   232→    max_states_per_net: int = 200,
+   233→    rollout_cap: int = 400,
+   234→) -> list[dict]:
+   235→    """Passe DAgger : etats visites par la politique BC, etiquetes par A*.
+   236→
+   237→    Le BC seul ne voit que les etats de l'expert : des qu'il devie, il
+   238→    explore des etats jamais etiquetes et les erreurs se composent. Ici la
+   239→    politique BC roule chaque net (comme en production), puis l'expert A*
+   240→    etiquete le PREMIER pas correct depuis chaque cellule visitee — y
+   241→    compris les etats d'erreur et d'hesitation. Les routes enregistrees
+   242→    pour les nets suivants reproduisent le comportement de production
+   243→    (route BC si succes, sinon repli A*).
+   244→    """
+   245→    _require_torch()
+   246→    from src.agents.ppo_agent import PPOAgent, PPOConfig
+   247→
+   248→    env = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=clearance_cells, seed=seed))
+   249→    # Les rollouts BC en echec peuvent errer jusqu'a max_steps : on plafonne
+   250→    # la collecte (les etats d'erreur utiles sont dans les premiers pas).
+   251→    env.max_steps = min(int(env.max_steps), max(32, int(rollout_cap)))
+   252→    in_channels = env.observation_shape[0]
+   253→    agent = PPOAgent(PPOConfig(), in_channels=in_channels, n_actions=12, device="cpu")
+   254→    if not agent.load(model_path):
+   255→        raise FileNotFoundError(f"checkpoint illisible : {model_path}")
+   256→
+   257→    demos: list[dict] = []
+   258→    for net_index in _route_order(env):
+   259→        route_bc = _greedy_rollout(env, net_index, agent)
+   260→        visited = list(env.episode_path)
+   261→        if route_bc is None or not route_bc.get("completed"):
+   262→            route = env.astar_route(net_index)  # repli de production
+   263→        else:
+   264→            route = route_bc  # deja enregistre par path_to_route(register=True)
+   265→        if not route.get("completed"):
+   266→            continue
+   267→        obs0 = env.reset(net_index)
+   268→        ep = env._episode
+   269→        if ep.start is None:
+   270→            continue
+   271→        targets_all = list(ep.targets)
+   272→        if not targets_all:
+   273→            continue
+   274→        planes = _pack_planes(obs0, env.layer_count)
+   275→        base = {"layers": env.layer_count, "h": env.grid_h, "w": env.grid_w,
+   276→                "planes": planes}
+   277→
+   278→        seen: set[Cell] = set()
+   279→        steps: list[tuple[int, int, int]] = []
+   280→        actions: list[int] = []
+   281→        for cell in visited:
+   282→            if cell in seen or len(steps) >= max_states_per_net:
+   283→                continue
+   284→            seen.add(cell)
+   285→            goal = min(targets_all, key=lambda t: (env._pad_dist(cell, t), t))
+   286→            if cell == goal:
+   287→                continue
+   288→            path = env._astar(net_index, cell, goal)
+   289→            if not path or len(path) < 2:
+   290→                continue
+   291→            dx = path[1][0] - cell[0]
+   292→            dy = path[1][1] - cell[1]
+   293→            dl = path[1][2] - cell[2]
+   294→            action = encode_expert_action(dx, dy, dl)
+   295→            if action is None:
+   296→                continue
+   297→            steps.append(cell)
+   298→            actions.append(action)
+   299→        if steps:
+   300→            demos.append({"net": f"{env._nets[net_index].name}#dagger", **base,
+   301→                          "steps": steps, "actions": actions})
+   302→    return demos
+   303→
+   304→
+   305→def save_demos(demos: list[dict], path: str | Path) -> None:
+   306→    """Serialise les demonstrations en ``.npz`` sans pickle."""
+   307→    meta_rows: list[tuple] = []
+   308→    planes_parts: list = []
+   309→    steps_rows: list[tuple] = []
+   310→    actions_rows: list[int] = []
+   311→    names: list[str] = []
+   312→    plane_off = 0
+   313→    step_off = 0
+   314→    for demo in demos:
+   315→        planes = demo["planes"]
+   316→        meta_rows.append(
+   317→            (
+   318→                demo["h"],
+   319→                demo["w"],
+   320→                demo["layers"],
+   321→                step_off,
+   322→                len(demo["actions"]),
+   323→                plane_off,
+   324→                int(planes.nbytes),
+   325→            )
+   326→        )
+   327→        planes_parts.append(np.asarray(planes, dtype=np.uint8).ravel())
+   328→        steps_rows.extend(tuple(int(v) for v in step) for step in demo["steps"])
+   329→        actions_rows.extend(int(a) for a in demo["actions"])
+   330→        names.append(str(demo["net"])[:63])
+   331→        plane_off += int(planes.nbytes)
+   332→        step_off += len(demo["actions"])
+   333→    out = Path(path)
+   334→    out.parent.mkdir(parents=True, exist_ok=True)
+   335→    np.savez_compressed(
+   336→        out,
+   337→        meta=np.asarray(meta_rows, dtype=np.int64).reshape(-1, 7),
+   338→        planes=np.concatenate(planes_parts) if planes_parts else np.zeros(0, dtype=np.uint8),
+   339→        steps=np.asarray(steps_rows, dtype=np.int32).reshape(-1, 3),
+   340→        actions=np.asarray(actions_rows, dtype=np.int8),
+   341→        nets=np.asarray(names, dtype="<U64"),
+   342→    )
+   343→
+   344→
+   345→def load_demos(path: str | Path) -> dict:
+   346→    """Recharge un ``.npz`` de demonstrations (numpy pur, sans pickle)."""
+   347→    with np.load(str(path), allow_pickle=False) as data:
+   348→        return {key: data[key] for key in data.files}
+   349→
+   350→
+   351→# ---------------------------------------------------------------------------
+   352→# Jeu de donnees torch
+   353→# ---------------------------------------------------------------------------
+   354→
+   355→
+   356→def _require_torch():
+   357→    try:
+   358→        import torch  # noqa: F401
+   359→    except Exception:
+   360→        sys.exit(
+   361→            "torch est requis pour l'entrainement BC (la collecte n'en a PAS besoin).\n"
+   362→            "  pip install torch --index-url https://download.pytorch.org/whl/cpu"
+   363→        )
+   364→    return torch
+   365→
+   366→
+   367→def _reconstruct_obs(batch_meta, planes, steps, demo_id: int, step_row: int):
+   368→    """Reconstruit l'observation float32 ``(C, H, W)`` d'un pas de demo.
+   369→
+   370→    Canaux statiques (obstacles, source, cibles) depuis les plans packbits,
+   371→    indicateur de couche et position de l'agent depuis l'etat du pas.
+   372→    """
+   373→    h, w, layers, _step_off, _n, plane_off, plane_bytes = (
+   374→        int(v) for v in batch_meta[demo_id]
+   375→    )
+   376→    bits = np.unpackbits(planes[plane_off : plane_off + plane_bytes])
+   377→    static = bits[: (layers + 2) * h * w].reshape(layers + 2, h, w)
+   378→    x, y, layer = (int(v) for v in steps[step_row])
+   379→    obs = np.zeros((layers + 4, h, w), dtype=np.float32)
+   380→    obs[:layers] = static[:layers]
+   381→    obs[layers] = static[layers]
+   382→    obs[layers + 1] = static[layers + 1]
+   383→    obs[layers + 2, :, :] = layer / max(1, layers - 1)
+   384→    obs[layers + 3] = position_plane(h, w, x, y)
+   385→    return obs
+   386→
+   387→
+   388→def build_torch_dataset(demos_data: dict):
+   389→    """Construit un ``Dataset`` torch ``(obs, action)`` depuis un npz charge."""
+   390→    _require_torch()  # verifie torch avant d'importer Dataset
+   391→    from torch.utils.data import Dataset
+   392→
+   393→    meta = demos_data["meta"]
+   394→    planes = demos_data["planes"]
+   395→    steps = demos_data["steps"]
+   396→    actions = demos_data["actions"]
+   397→
+   398→    index: list[tuple[int, int]] = []
+   399→    for demo_id, row in enumerate(meta):
+   400→        offset, count = int(row[3]), int(row[4])
+   401→        for k in range(count):
+   402→            index.append((demo_id, offset + k))
+   403→
+   404→    class _BCDataset(Dataset):
+   405→        def __init__(self) -> None:
+   406→            self.index = index
+   407→
+   408→        def __len__(self) -> int:
+   409→            return len(self.index)
+   410→
+   411→        def __getitem__(self, idx: int):
+   412→            demo_id, step_row = self.index[idx]
+   413→            obs = _reconstruct_obs(meta, planes, steps, demo_id, step_row)
+   414→            return obs, int(actions[step_row])
+   415→
+   416→    return _BCDataset()
+   417→
+   418→
+   419→# ---------------------------------------------------------------------------
+   420→# Entrainement (cross-entropy sur les actions expertes)
+   421→# ---------------------------------------------------------------------------
+   422→
+   423→
+   424→def train_bc(
+   425→    demos_path: str,
+   426→    out_path: str,
+   427→    epochs: int = 3,
+   428→    batch_size: int = 32,
+   429→    lr: float = 1e-3,
+   430→    val_frac: float = 0.05,
+   431→    seed: int = 0,
+   432→    init_from: str | None = None,
+   433→    time_budget_s: float = 0.0,
+   434→) -> dict:
+   435→    """Entraine le clone comportemental et sauve un checkpoint compatible PPO.
+   436→
+   437→    Le reseau est exactement celui du PPO (:class:`PPOAgent`) : le checkpoint
+   438→    produit se charge dans le service sans aucune difference de format, ce
+   439→    qui permet de comparer PPO pur et BC dans l'arene a modelisation egale.
+   440→
+   441→    Returns:
+   442→        Dict de stats ``{"samples", "epochs_run", "accuracy", "class_accuracy"}``.
+   443→    """
+   444→    torch = _require_torch()
+   445→    from src.agents.ppo_agent import PPOAgent, PPOConfig
+   446→
+   447→    torch.set_num_threads(max(1, os.cpu_count() or 1))
+   448→    torch.manual_seed(seed)
+   449→
+   450→    data = load_demos(demos_path)
+   451→    meta = data["meta"]
+   452→    layers = int(meta[0][2]) + 4  # canaux d'observation = couches + 4
+   453→    dataset = build_torch_dataset(data)
+   454→
+   455→    # Split train/validation PAR demo (pas par pas : evite la fuite).
+   456→    rng = random.Random(seed)
+   457→    demo_ids = list(range(len(meta)))
+   458→    rng.shuffle(demo_ids)
+   459→    n_val = max(1, int(len(demo_ids) * val_frac)) if len(demo_ids) > 1 else 0
+   460→    val_ids = set(demo_ids[:n_val])
+   461→    train_idx = [i for i, (d, _s) in enumerate(dataset.index) if d not in val_ids]
+   462→    val_idx = [i for i, (d, _s) in enumerate(dataset.index) if d in val_ids]
+   463→
+   464→    agent = PPOAgent(PPOConfig(), in_channels=layers, n_actions=12, device="cpu")
+   465→    if init_from and not agent.load(init_from):
+   466→        print(f"[warn] checkpoint initial illisible : {init_from}", flush=True)
+   467→    agent.net.train()
+   468→
+   469→    optimizer = torch.optim.Adam(agent.net.parameters(), lr=lr)
+   470→    loss_fn = torch.nn.CrossEntropyLoss()
+   471→
+   472→    started = time.monotonic()
+   473→    epochs_run = 0
+   474→
+   475→    def batches(idx_list: list[int], shuffle: bool):
+   476→        order = list(idx_list)
+   477→        if shuffle:
+   478→            rng.shuffle(order)
+   479→        # Grouper par forme d'observation : le jeu melange de vraies cartes
+   480→        # (grilles grandes) et du curriculum synthetique (grilles petites),
+   481→        # et np.stack exige des formes identiques au sein d'un batch.
+   482→        groups: dict[tuple[int, int], list[int]] = {}
+   483→        for i in order:
+   484→            demo_id, _step_row = dataset.index[i]
+   485→            shape = (int(meta[demo_id][0]), int(meta[demo_id][1]))
+   486→            groups.setdefault(shape, []).append(i)
+   487→        shapes = list(groups)
+   488→        if shuffle:
+   489→            rng.shuffle(shapes)
+   490→        for shape in shapes:
+   491→            chunk_list = groups[shape]
+   492→            if shuffle:
+   493→                rng.shuffle(chunk_list)
+   494→            for start in range(0, len(chunk_list), batch_size):
+   495→                chunk = chunk_list[start : start + batch_size]
+   496→                obs_batch = np.stack(
+   497→                    [_reconstruct_obs(meta, data["planes"], data["steps"],
+   498→                                      dataset.index[i][0], dataset.index[i][1])
+   499→                     for i in chunk]
+   500→                )
+   501→                act_batch = np.asarray(
+   502→                    [int(data["actions"][dataset.index[i][1]]) for i in chunk]
+   503→                )
+   504→                yield (
+   505→                    torch.as_tensor(obs_batch, dtype=torch.float32),
+   506→                    torch.as_tensor(act_batch, dtype=torch.int64),
+   507→                )
+   508→
+   509→    def accuracy(idx_list: list[int]) -> tuple[float, dict[int, float]]:
+   510→        agent.net.eval()
+   511→        correct = 0
+   512→        total = 0
+   513→        per_class: dict[int, list[int]] = {}
+   514→        with torch.no_grad():
+   515→            for obs_batch, act_batch in batches(idx_list, shuffle=False):
+   516→                logits, _value = agent.net(obs_batch)
+   517→                preds = logits.argmax(dim=-1)
+   518→                matches = (preds == act_batch).tolist()
+   519→                for gold, ok in zip(act_batch.tolist(), matches, strict=True):
+   520→                    total += 1
+   521→                    correct += int(ok)
+   522→                    slot = per_class.setdefault(gold, [0, 0])
+   523→                    slot[0] += int(ok)
+   524→                    slot[1] += 1
+   525→        agent.net.train()
+   526→        class_acc = {k: v[0] / v[1] for k, v in sorted(per_class.items()) if v[1]}
+   527→        return (correct / total if total else 0.0), class_acc
+   528→
+   529→    print(
+   530→        f"bc: {len(train_idx)} pas d'entrainement / {len(val_idx)} validation "
+   531→        f"({len(meta)} demonstrations, {layers} canaux)",
+   532→        flush=True,
+   533→    )
+   534→    for epoch in range(1, max(1, epochs) + 1):
+   535→        running = 0.0
+   536→        count = 0
+   537→        for obs_batch, act_batch in batches(train_idx, shuffle=True):
+   538→            logits, _value = agent.net(obs_batch)
+   539→            loss = loss_fn(logits, act_batch)
+   540→            optimizer.zero_grad()
+   541→            loss.backward()
+   542→            torch.nn.utils.clip_grad_norm_(agent.net.parameters(), 5.0)
+   543→            optimizer.step()
+   544→            running += float(loss.item())
+   545→            count += 1
+   546→            if count % 25 == 0:
+   547→                print(f"bc: epoch {epoch} update {count} loss {running / count:.4f}", flush=True)
+   548→            if time_budget_s > 0 and time.monotonic() - started > time_budget_s:
+   549→                print(
+   550→                    f"bc: budget temps atteint ({time_budget_s:.0f}s) -> arret apres "
+   551→                    f"{epochs_run + 1} epoch(s)",
+   552→                    flush=True,
+   553→                )
+   554→                break
+   555→        epochs_run = epoch
+   556→        val_acc, _ = accuracy(val_idx) if val_idx else (float("nan"), {})
+   557→        print(
+   558→            f"bc: epoch {epoch}/{epochs} loss {running / max(1, count):.4f} "
+   559→            f"val_accuracy {val_acc:.3f}",
+   560→            flush=True,
+   561→        )
+   562→        if time_budget_s > 0 and time.monotonic() - started > time_budget_s:
+   563→            break
+   564→
+   565→    train_acc, class_acc = accuracy(train_idx)
+   566→    out = Path(out_path)
+   567→    out.parent.mkdir(parents=True, exist_ok=True)
+   568→    if not agent.save(str(out)):
+   569→        raise RuntimeError(f"echec de la sauvegarde du checkpoint {out}")
+   570→    print(
+   571→        f"bc: checkpoint {out} - accuracy train {train_acc:.3f} "
+   572→        f"({len(train_idx)} pas, {epochs_run} epoch(s))",
+   573→        flush=True,
+   574→    )
+   575→    pretty = {ActionLabel(k): f"{v:.2f}" for k, v in class_acc.items()}
+   576→    print(f"bc: accuracy par action {pretty}", flush=True)
+   577→    return {
+   578→        "samples": len(train_idx),
+   579→        "epochs_run": epochs_run,
+   580→        "accuracy": train_acc,
+   581→        "class_accuracy": class_acc,
+   582→    }
+   583→
+   584→
+   585→def ActionLabel(action: int) -> str:  # noqa: N802 - libelle lisible pour le log
+   586→    from src.environment.action_space import ActionSpace
+   587→
+   588→    return ActionSpace().name(action)
+   589→
+   590→
+   591→# ---------------------------------------------------------------------------
+   592→# Evaluation hors-ligne : A* vs BC sur la meme carte
+   593→# ---------------------------------------------------------------------------
+   594→
+   595→
+   596→def _greedy_rollout(env: PCBRouteEnv, net_index: int, agent) -> dict | None:
+   597→    """Rollout glouton, copie conforme de ``service._rl_route``."""
+   598→    obs = env.reset(net_index)
+   599→    info: dict = {}
+   600→    for _ in range(env.max_steps):
+   601→        action = agent.select_action(obs, greedy=True)
+   602→        obs, _reward, terminated, truncated, info = env.step(action)
+   603→        if terminated or truncated:
+   604→            break
+   605→    if not info.get("success"):
+   606→        return None
+   607→    return env.path_to_route(net_index, env.episode_path)
+   608→
+   609→
+   610→def evaluate_offline(
+   611→    model_path: str,
+   612→    board: dict,
+   613→    nets: list[dict],
+   614→    clearance_cells: int = 1,
+   615→    seed: int = 0,
+   616→    max_nets: int = 0,
+   617→    rollout_cap: int = 0,
+   618→) -> dict:
+   619→    """Compare A* et BC sur la meme carte avec deux environnements separes.
+   620→
+   621→    Args:
+   622→        rollout_cap: plafond de pas pour les rollouts BC (0 = max_steps de
+   623→            l'env). Un cap evite des minutes d'errance par net en echec ;
+   624→            400 represente deja ~2.6x le plus long chemin expert.
+   625→
+   626→    Returns:
+   627→        Dict avec, par strategy : completion, longueur, vias, temps ; et les
+   628→        totaux ``bc_with_fallback`` correspondant au comportement de
+   629→        production (repli A* net par net en cas d'echec BC).
+   630→    """
+   631→    _require_torch()
+   632→    from src.agents.ppo_agent import PPOAgent, PPOConfig
+   633→
+   634→    env_star = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=clearance_cells, seed=seed))
+   635→    env_bc = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=clearance_cells, seed=seed))
+   636→    if rollout_cap > 0:
+   637→        env_bc.max_steps = min(int(env_bc.max_steps), int(rollout_cap))
+   638→    in_channels = env_bc.observation_shape[0]
+   639→    agent = PPOAgent(PPOConfig(), in_channels=in_channels, n_actions=12, device="cpu")
+   640→    if not agent.load(model_path):
+   641→        raise FileNotFoundError(f"checkpoint illisible : {model_path}")
+   642→
+   643→    order = _route_order(env_star)
+   644→    if max_nets and max_nets > 0:
+   645→        order = order[:max_nets]
+   646→
+   647→    rows = []
+   648→    for net_index in order:
+   649→        t0 = time.monotonic()
+   650→        route_star = env_star.astar_route(net_index)
+   651→        t_star = time.monotonic() - t0
+   652→        t0 = time.monotonic()
+   653→        route_bc = _greedy_rollout(env_bc, net_index, agent)
+   654→        t_bc = time.monotonic() - t0
+   655→        if route_bc is None:
+   656→            route_bc = {"net": env_bc.net_names[net_index], "segments": [], "vias": [],
+   657→                        "length_mm": 0.0, "completed": False}
+   658→        rows.append({"net": env_star.net_names[net_index], "star": route_star,
+   659→                     "bc": route_bc, "t_star": t_star, "t_bc": t_bc})
+   660→
+   661→    def _totals(key: str) -> dict:
+   662→        completed = sum(1 for r in rows if r[key].get("completed"))
+   663→        length = sum(r[key].get("length_mm", 0.0) for r in rows)
+   664→        vias = sum(len(r[key].get("vias") or []) for r in rows)
+   665→        return {"completed": completed, "length_mm": round(length, 1), "vias": vias}
+   666→
+   667→    fallback_rows = []
+   668→    for r in rows:
+   669→        best = r["bc"] if r["bc"].get("completed") else r["star"]
+   670→        fallback_rows.append(best)
+   671→    fb_completed = sum(1 for r in fallback_rows if r.get("completed"))
+   672→    fb_length = sum(r.get("length_mm", 0.0) for r in fallback_rows)
+   673→    fb_vias = sum(len(r.get("vias") or []) for r in fallback_rows)
+   674→
+   675→    return {
+   676→        "nets": len(rows),
+   677→        "astar": {**_totals("star"), "time_s": round(sum(r["t_star"] for r in rows), 2)},
+   678→        "bc": {**_totals("bc"), "time_s": round(sum(r["t_bc"] for r in rows), 2)},
+   679→        "bc_with_fallback": {
+   680→            "completed": fb_completed,
+   681→            "length_mm": round(fb_length, 1),
+   682→            "vias": fb_vias,
+   683→        },
+   684→        "rows": [
+   685→            {
+   686→                "net": r["net"],
+   687→                "astar_mm": round(r["star"].get("length_mm", 0.0), 1),
+   688→                "bc_mm": round(r["bc"].get("length_mm", 0.0), 1),
+   689→                "bc_ok": bool(r["bc"].get("completed")),
+   690→            }
+   691→            for r in rows
+   692→        ],
+   693→    }
+   694→
+   695→
+   696→# ---------------------------------------------------------------------------
+   697→# CLI
+   698→# ---------------------------------------------------------------------------
+   699→
+   700→
+   701→def _load_route_input(path: str) -> tuple[dict, list[dict]]:
+   702→    payload = json.loads(Path(path).read_text(encoding="utf-8"))
+   703→    return payload["board"], payload["nets"]
+   704→
+   705→
+   706→def main(argv: list[str] | None = None) -> int:
+   707→    parser = argparse.ArgumentParser(
+   708→        description="Imitation learning (behavioral cloning) du routeur YahriaCad"
+   709→    )
+   710→    sub = parser.add_subparsers(dest="command", required=True)
+   711→
+   712→    p_gen = sub.add_parser("generate", help="collecte les demonstrations de A*")
+   713→    p_gen.add_argument("--input", help="route_input.json dumpy par le moteur IA")
+   714→    p_gen.add_argument("--out", default="training/router/demos.npz")
+   715→    p_gen.add_argument("--synthetic", type=int, default=0,
+   716→                       help="ajoute N cartes synthetiques au curriculum")
+   717→    p_gen.add_argument("--synthetic-seed", type=int, default=42)
+   718→    p_gen.add_argument("--max-nets", type=int, default=0,
+   719→                       help="plafonne le nombre de nets par carte (0 = tous)")
+   720→    p_gen.add_argument("--probes", type=int, default=0,
+   721→                       help="cellules-sondes etiquetees par net (champ de reprise A*)")
+   722→    p_gen.add_argument("--probes-real", type=int, default=None,
+   723→                       help="sondes pour la carte reelle seule (defaut = --probes)")
+   724→    p_gen.add_argument("--clearance", type=int, default=1)
+   725→
+   726→    p_train = sub.add_parser("train", help="entraine le clone comportemental")
+   727→    p_train.add_argument("--demos", default="training/router/demos.npz")
+   728→    p_train.add_argument("--out", default="training/router/model_bc.pt")
+   729→    p_train.add_argument("--epochs", type=int, default=3)
+   730→    p_train.add_argument("--batch", type=int, default=32)
+   731→    p_train.add_argument("--lr", type=float, default=1e-3)
+   732→    p_train.add_argument("--seed", type=int, default=0)
+   733→    p_train.add_argument("--init-from", default=None,
+   734→                         help="checkpoint de depart (reprise / fine-tune)")
+   735→    p_train.add_argument("--time-budget", type=float, default=0.0,
+   736→                         help="budget temps en secondes (0 = illimite)")
+   737→
+   738→    p_eval = sub.add_parser("eval", help="compare A* et BC hors-ligne")
+   739→    p_eval.add_argument("--model", default="training/router/model_bc.pt")
+   740→    p_eval.add_argument("--input", help="route_input.json (carte a evaluer)")
+   741→    p_eval.add_argument("--max-nets", type=int, default=0)
+   742→    p_eval.add_argument("--rollout-cap", type=int, default=0,
+   743→                        help="plafond de pas par rollout BC (0 = max_steps)")
+   744→    p_eval.add_argument("--clearance", type=int, default=1)
+   745→
+   746→    args = parser.parse_args(argv)
+   747→
+   748→    if args.command == "generate":
+   749→        probes_real = args.probes if args.probes_real is None else args.probes_real
+   750→        demos: list[dict] = []
+   751→        if args.input:
+   752→            board, nets = _load_route_input(args.input)
+   753→            got = collect_demos(board, nets, clearance_cells=args.clearance,
+   754→                                max_nets=args.max_nets, probes=probes_real)
+   755→            print(f"generate: {len(got)} demonstrations depuis {args.input}", flush=True)
+   756→            demos.extend(got)
+   757→        if args.synthetic > 0:
+   758→            from evaluation.bench import make_synthetic_board
+   759→
+   760→            for k in range(args.synthetic):
+   761→                board, nets = make_synthetic_board(args.synthetic_seed * 1000 + k)
+   762→                got = collect_demos(board, nets, clearance_cells=args.clearance,
+   763→                                    max_nets=args.max_nets, probes=args.probes)
+   764→                demos.extend(got)
+   765→            print(f"generate: +{args.synthetic} cartes synthetiques "
+   766→                  f"(total {len(demos)} demonstrations)", flush=True)
+   767→        if not demos:
+   768→            print("generate: aucune demonstration collectee", flush=True)
+   769→            return 1
+   770→        steps_total = sum(len(d["actions"]) for d in demos)
+   771→        save_demos(demos, args.out)
+   772→        print(f"generate: {len(demos)} demonstrations / {steps_total} pas -> {args.out}",
+   773→              flush=True)
+   774→        return 0
+   775→
+   776→    if args.command == "train":
+   777→        train_bc(
+   778→            args.demos,
+   779→            args.out,
+   780→            epochs=args.epochs,
+   781→            batch_size=args.batch,
+   782→            lr=args.lr,
+   783→            seed=args.seed,
+   784→            init_from=args.init_from,
+   785→            time_budget_s=args.time_budget,
+   786→        )
+   787→        return 0
+   788→
+   789→    if args.command == "eval":
+   790→        board, nets = _load_route_input(args.input)
+   791→        report = evaluate_offline(args.model, board, nets, clearance_cells=args.clearance,
+   792→                                  max_nets=args.max_nets, rollout_cap=args.rollout_cap)
+   793→        print(json.dumps(report, indent=2, ensure_ascii=False))
+   794→        return 0
+   795→
+   796→    return 1
+   797→
+   798→
+   799→if __name__ == "__main__":
+   800→    raise SystemExit(main())
+   801→

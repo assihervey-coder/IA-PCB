@@ -238,3 +238,29 @@ Stage Summary:
 - Livre : pipeline d'imitation learning complet (dump -> demos+sondes -> BC+DAgger -> eval -> reload a chaud), 3 bugs d'environnement corriges (via-cible, position absente, illusion de benchmark), architecture reactive + masquage d'actions, budget de pas adaptatif en production
 - Mesure cle : le RL(BC) ferme la majeure partie de l'ecart arene (461.75 vs 592.70, etait 49.72-130.67) et le mode RL redevient utilisable en ligne sur vraie carte (42 s pour 6 nets)
 - Restant : transfert grande carte (resolution appariee + DAgger reel), PAT GitHub toujours a revoker
+
+---
+Task ID: 12
+Agent: Super Z (main)
+Task: Suites imitation learning — ① curriculum 0,25 mm à l'échelle réelle + rondes DAgger sur vraie carte, ② fine-tuning RL (PPO) depuis le checkpoint BC
+
+Work Log:
+- Curriculum réaliste 0,25 mm : evaluation/bench.py make_realistic_board (70-115 × 50-85 mm => grilles 281-461 × 201-341, 14-40 nets routables, 24-64 nets-leurres congestifs routés mais non démontrés via skip_decoys) ; 12 cartes générées par lots de 4 (scripts/il_gen.sh, ~50 s/carte mesurés)
+- Données : 1344 démos / 122 143 pas fusionnées (imitation.py merge : vraie carte + 80 sondes/net, rscale ×12, synth ×8, ancien curriculum) ; 2 rondes DAgger on-policy (scripts/il_dagger.py) : dag#1 684 pas, dag#2 243 pas (rollouts v5w plus courts = politique déjà meilleure)
+- 3 BUGS RÉELS trouvés et corrigés :
+  1) Étiquettes A* illégales : astar_route force-libère la cellule but ; pads empilés (même cellule, 2 refs) => étiquette via-up vers cellule bloquée dans l'obs => batch loss inf (2,5 M observé) => imitation.py _label_legal filtre + train_bc saute les batchs non finis
+  2) Éval non fidèle à la production : evaluate_offline n'enregistrait PAS le repli A* des échecs BC => cartes trouées hors distribution pour les nets suivants
+  3) Complétude multi-pads impossible : l'épisode RL termine au PREMIER pad atteint et 50/52 nets de complex_hierarchy ont 4-52 pads => plafond structurel 2/52, pas une faiblesse de politique
+- BC pondéré : CrossEntropy inverse-sqrt des fréquences d'actions — les vias (7 % des pas experts réels) enfin appris : accuracy via-up 0.08 => 0.93 (v6), left 0.10=>0.82 (v5w)
+- Hybride « jambe RL + chainage A* » : imitation.py hybrid_rl_route + service.py _chain_remaining_legs (miroir exact d'astar_route : source = cellule connectée la plus proche, cells propres libres, fusion géométrique), flag router.rl_leg_completion (défaut true), repli A* intégral si chainage incomplet ; evaluate_offline --mode leg1|pure (leg1 par défaut)
+- PPO depuis BC (train.py : --init-from/--board synthetic|realistic|mixed/--lr/--ent-coef/--vf-coef/--epochs, seeds de cartes variés par rollout, rollout 64 sur grandes grilles pour la RAM) : 3 essais contrôlés — FT2 naïf mixed (23=>2), FT3 vf_coef 0.05/lr 3e-5 (2/52), FT4 in-distribution seed 42 (2/52) — RÉGRESSION DOCUMENTÉE : la tête de valeur d'un checkpoint BC est aléatoire et ses gradients (GAE sur épisodes tronqués, ~0 épisode complété) détruisent le tronc ; correctifs futurs identifiés : warm-up valeur figée/politique ou ancre KL au BC
+- Résultat shipped : BC v6 (v5w + DAgger#2 ×8, lr 5e-5) = checkpoint par défaut config.yaml (jamais commité, repli A* si absent)
+- Mesures finales (complex_hierarchy 52 nets, hybride leg1) : A* 49/52, 1755 mm, 362 vias, 5,3 s || RL(v6) 45/52 (87 % de A*), 1722 mm, 294 vias, 13,4 s, longueur RL/A* 1,155 || RL+repli 49/49, 2030 mm, 361 vias. Trajectoire : PPO 20k 2/52-equivalent (49,72 arene) => BC real2 23/52 implicite (461,75) => v6 45/52 (465,33 arene, marge 127,37 vs 543 au départ). Routage RL en ligne 6 nets vraie carte : 20 s (était 42 s, était >440 s)
+- Validation : ruff clean, pytest 9/9, gofmt/vet/build OK ; commit 094d043 poussé (15 fichiers, 580 insertions) ; scripts smoke_imitation_eval.sh : MODEL surchargeable
+- Pièges : budget time-budget BC = 330 s max par session (accuracy finale échantillonnée 4000, val sautée si budget dépassé) ; merge ×même fichier pour surpondérer DAgger ; pkill orphelins en tête des smokes
+
+Stage Summary:
+- Livré : la boucle complète ① (curriculum 0,25 mm à l'échelle réelle + sondes réelles + 2 rondes DAgger + BC pondéré) et ② (PPO depuis BC outillé + 3 essais documentés) ; stratégie hybride leg1 en production
+- Mesure clé : l'écart RL vs A* sur VRAIE carte refermé de 2/52 à 45/52 nets (87 % de A*), longueur 1,155×, vias 294 vs 362 — la politique apporte désormais la majorité des premières jambes
+- Décisions : v6 checkpoint par défaut ; PPO pur reporté (ancre KL / warm-up valeur requis) ; eval leg1 = nouveau protocole de référence
+- Restant : CI à vérifier sur GitHub (commit 094d043) ; PAT toujours à révoquer

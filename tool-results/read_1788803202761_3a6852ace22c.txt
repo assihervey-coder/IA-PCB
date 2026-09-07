@@ -1,0 +1,241 @@
+     1→     1→---
+     2→     2→Task ID: 1
+     3→     3→Agent: Super Z (main)
+     4→     4→Task: Tag v0.1.0, CI GitHub Actions, README, routage multi-couches + plans de masse, autoroutage interactif + classes de nets, intégration RL PyTorch, CRDT collaboratif + undo/redo persistant, endpoint démo nightmare + Doctor branché au moteur RL (repo yahriacad → github.com/assihervey-coder/IA-PCB)
+     5→     5→
+     6→     6→Work Log:
+     7→     7→- Tag annoté v0.1.0 créé sur 7612c75 (premier jet) et poussé
+     8→     8→- CI : .github/workflows/ci.yml (3 jobs : Go build/vet/test -race, Python ruff+pytest+dérive stubs gRPC, frontend npm ci/build) ; Makefile réparé (recettes en tabulations, était cassé) + cible train-router
+     9→     9→- Plans de masse : domaine CopperPour (copper_pour.go), Board.Pours, PCB-format pours (interchange + SQL), PourService (remplissage par échantillonnage, couture de vias), REST POST/GET/DELETE .../pours, geometry Polygon.ContainsPoint/DistanceToPoint, preservation des pours via PUT /layout
+    10→    10→- Classes de nets : ConstraintSet.SetClassRule/ClassRules/Classes, NetClassService (Overview/Assign/SetRules), REST GET/PUT .../netclasses[...]
+    11→    11→- RL : port AIService + EngineInfo (device/model_loaded), /healthz enrichi (ai_device, ai_model_loaded, ai_version), ai-engine/training/router/train.py (PPO CLI)
+    12→    12→- CRDT : package application/collab (op.go, doc.go LWW + Lamport, service.go journal JSONL durable + replay bookkeeping), Hub.Broadcast, REST collab/ops|state|undo|redo, undo/redo par acteur persistant
+    13→    13→- Démo + Doctor : application/demo (carte cauchemar à 5 fautes réelles), POST /api/v1/demo/nightmare, DoctorService + ai (axe "ai" + rehearsal sandbox via RouteBoard sans persistance)
+    14→    14→- Smoke test HTTP réel : nightmare → doctor (55.8/D, 18 violations DRC) → autofix (18→9) → doctor (67.5/C) ; pours (fill 100% B.Cu), netclasses power (0.5mm effectif), collab ops/undo/state + journal JSONL vérifié
+    15→    15→- Docs : README (badges CI/v0.1.0, démo 30 s, train-router, tableau extensions), contracts.md §11, guides/guide-avances.md, router README train.py
+    16→    16→- Validation : gofmt 0 écart, go build/vet OK, go test -race 11 packages OK, ruff OK, pytest 5/5, dérive stubs gRPC nulle
+    17→    17→- 3 commits poussés sur main : dd1be44 (ci), eda5125 (feat), b10d158 (docs)
+    18→    18→
+    19→    19→Stage Summary:
+    20→    20→- Livré : CI GitHub Actions opérationnelle (badge README), v0.1.0 tagué, plans de masse N-couches avec couture, classes de nets + autoroutage interactif, CRDT multi-utilisateurs avec undo/redo durable, démo Auto-Healer en un curl, Doctor branché au moteur RL (sonde + répétition)
+    21→    21→- Décisions : pas de modification de pcb.proto (contrat figé) — le branchement Doctor↔RL passe par GetHealth + RouteBoard existants ; pours conservées sur PUT /layout ; LWW tie-break (lamport, acteur)
+    22→    22→- Sécurité : PAT exposé dans l'historique de chat — révoquer le token GitHub (rappel déjà émis)
+    23→    23→
+    24→    24→---
+    25→    25→Task ID: 2
+    26→    26→Agent: Super Z (main)
+    27→    27→Task: Analyse état vs vision + éditeur CRDT frontend + calcul d'impédance différentielle par classe de nets (repo yahriacad → github.com/assihervey-coder/IA-PCB)
+    28→    28→
+    29→    29→Work Log:
+    30→    30→- Analyse complète : arborescence vision 100% implémentée + extras (arena/magic/doctor/dfm/timemachine/stats) ; tag v0.1.0, CI, README badges, pours, netclasses, CRDT backend, démo nightmare, Doctor→RL déjà livrés au Task 1
+    31→    31→- Impédance différentielle : application/verification/impedance.go (détection paires X+/X-, X_P/X_N, XP/XN par classe ; microstrip couplé Zodd/Zeven/Zdiff/Zcom type Bogatin ; écart cuivre-cuivre mesuré segment à segment ; skew mm+ps ; solveurs bisection largeur/écart pour atteindre la cible ; cibles par classe 90/100 Ω surchargeables), impedance_test.go (5 tests), REST POST /projects/{id}/impedance (handler + Deps + main.go)
+    32→    32→- Bug physique #1 corrigé : microstripZ0 (IPC-2141) divisait par (w/h+1.41) avec log10 → 0.25mm=23Ω ; désormais 87/√(Er+1.41)·ln(...) → 60Ω réaliste ; s'applique à l'Oracle d'œil
+    33→    33→- Bug physique #2 corrigé : siPropagationC 299.79 "mm/ps" était mm/ns → délais 1000× trop petits ; désormais 0.2998 mm/ps (skew 8mm = 42ps vérifié en smoke)
+    34→    34→- Éditeur CRDT frontend : lib/collab/{crdt-client.ts (CrdtEditor : outbox localStorage par projet, batch idempotent, rattrapage state?since, dédup op id LRU), apply-op.ts (fusion pure des 7 kinds, ensembles additifs dédup), use-crdt.ts (hook)} ; components/collab/CollabBar.tsx (statut + activité) ; CollabSocket dans ws-client.ts ; page pcb-layout : component.move/rotate via CRDT, undo/redo serveur persistants (Ctrl+Z), bouton ⚡ Impédance + panneau DiffImpedance.tsx ; styles globals.scss
+    35→    35→- Smoke HTTP réel (scripts/smoke-impedance-collab.sh) : 2 paires détectées (USB 98Ω conforme, ETH 114Ω hors bande + skew 42ps + recommandations), cible 90Ω surchargée, collab track.add + component.move → state seq=2 → undo → redo → convergence vérifiée
+    36→    36→- Validation : gofmt clean, go vet OK, go test -race 11 packages OK, tsc --noEmit OK, next build 10 pages OK
+    37→    37→- Docs : contracts.md (éditeur CRDT frontend + oracle impédance + corrections physiques), README section v0.3
+    38→    38→
+    39→    39→Stage Summary:
+    40→    40→- Livré : oracle d'impédance différentielle par classe de nets (backend+UI), éditeur CRDT complet côté frontend (outbox offline, rattrapage, undo/redo serveur), 2 bugs de physique SI corrigés
+    41→    41→- Décisions : endpoint POST impedance (corps optionnel), paires déduites des pistes si pas de schéma, clamp largeur 1.2mm (domaine de validité microstrip)
+    42→    42→- Reste : push (2 commits en avance dont d033764), PAT GitHub à révoquer (déjà signalé)
+    43→    43→
+    44→    44→---
+    45→    45→Task ID: 3
+    46→    46→Agent: Super Z (main)
+    47→    47→Task: Renommage plateforme KidCAD-Pro-IA → YahriaCad (repo IA-PCB)
+    48→    48→
+    49→    49→Work Log:
+    50→    50→- Inventaire: 408 occurrences "kidcad" dans ~141 fichiers trackés (produit) + 73 fichiers template racine; module Go github.com/kidcad/kidcad-pro-ia, contrat gRPC kidcad.pcb.v1, env KIDCAD_*, binaire kidcad-server, format .kidcad.json
+    51→    51→- Outils reinstallés: Go 1.22.12 (workspace .cache) + protoc-gen-go v1.34.2 + protoc-gen-go-grpc v1.4.0 (go install) pour régénération stubs complète
+    52→    52→- Renommage sédimenté ordonné (du plus spécifique au plus générique) sur fichiers TRACKÉS git: module Go → github.com/assihervey-coder/IA-PCB, proto kidcad.pcb.v1 → yahriacad.pcb.v1, KidCAD-Pro-IA/Kidcad/KidCAD/KidCad → YahriaCad, KIDCAD_ → YAHRIACAD_, kidcad-server → yahriacad-server, kidcad → yahriacad
+    53→    53→- git mv: backend/cmd/kidcad-server → backend/cmd/yahriacad-server (produit), src/lib/kidcad + src/components/kidcad → src/lib|components/yahriacad (template racine), dossier kidcad-pro-ia/ → yahriacad/
+    54→    54→- Stubs gRPC régénérés (Python + Go) depuis le proto renommé — descripteurs sérialisés cohérents (longueurs recalculées par protoc), dérive CI Python nulle
+    55→    55→- Réparation bug latent: ci.yml produit avait "branches: ain]" déjà dans HEAD (typo du lot précédent, invisible car workflow en sous-dossier non lu par GitHub)
+    56→    56→- CI effective GitHub créée à la RACINE: /.github/workflows/ci.yml (3 jobs avec working-directory: yahriacad, cache-dependency-path préfixés) + ci.yml produit réparé [main]
+    57→    57→- download/kidcad-pro-ia.zip sorti du suivi git (git rm --cached) + .gitignore download/*.zip + génération download/yahriacad.zip (12M)
+    58→    58→- Validation: 0 occurrence kidcad restante (fichiers trackés, casse-insensible), gofmt clean, go vet OK, go build OK, go test OK, pytest 5/5, tsc --noEmit frontend produit OK; erreurs TS template racine préexistantes (typage métier, non liées au rename)
+    59→    59→- Commit ebacc11 poussé sur main (48cda86..ebacc11); tag v0.1.0 conservé (pointe sur l'ancien code, historique intouché)
+    60→    60→
+    61→    61→Stage Summary:
+    62→    62→- Plateforme renommée YahriaCad de bout en bout: module Go, contrat gRPC wire, branding UI/docs/licence, chemins, binaire, env vars, CI racine effective
+    63→    63→- Décisions: package proto renommé (cassé la compat wire avec v0.1.0 — assumé pré-lancement, stubs régénérés et validés); template racine rebrandé aussi (le repo GitHub affiche YahriaCad en page d'accueil)
+    64→    64→- Piège contourné: artefact d'affichage du shell avalant "[m" dans les sorties grep (diagnostiqué par od) — vérifications finales faites par od sur les octets réels (index + HEAD)
+    65→    65→- Reste: PAT GitHub à révoquer (rappel); renommage du repo GitHub IA-PCB → YahriaCad possible sur demande (API PATCH repos, l'ancienne URL redirige)
+    66→    66→
+    67→    67→---
+    68→    68→Task ID: 4
+    69→    69→Agent: Super Z (main)
+    70→    70→Task: Mise à jour dépôt GitHub + rename repo IA-PCB → YahriaCad via API + lot wow restant (routage interactif, intégration PyTorch)
+    71→    71→
+    72→    72→Work Log:
+    73→    73→- Bilan préalable : routage interactif de base (stratégie A*/RL + filtre de nets + jobs WS) et chargement PyTorch paresseux (checkpoint PPO, model_loaded) déjà livrés aux tâches 1-3 ; extension ciblée décidée
+    74→    74→- Routage interactif au net : bouton ⚡ par net dans la liste des nets de l'éditeur PCB (pcb-layout/page.tsx) -> POST /route {nets:[nom], strategy:"astar"} + sondage job 800 ms (plafond 60 s) + refreshLayout + toasts ; style .net-route-btn (globals.scss)
+    75→    75→- Intégration PyTorch complète : proto +2 RPC additives (GetModelInfo, ReloadModel ; messages ModelInfo/ReloadModelRequest/Response), stubs Go+Python régénérés via grpc_tools.protoc + plugins (sortie module=…:. depuis racine projet, piège de layout résolu)
+    76→    76→- Python : service.py +_torch_available/_checkpoint_stats/_model_info/GetModelInfo/ReloadModel (re-target checkpoint surchargé, modèle précédent conservé si échec, repli A* jamais perdu)
+    77→    77→- Go : port AIService étendu (ModelInfo, ReloadModel), struct layoutapp.ModelInfo, client gRPC implémenté, fallback unreachableAI + fakes (demo routeAllAI, intégration mockAI) mis à jour, handler rest/ai_handler.go, routes GET /api/v1/ai/model + POST /api/v1/ai/model/reload
+    78→    78→- Frontend : types AIModelInfo/AIModelReloadResult, api.getAIModel/reloadAIModel, panneau « Modèle RL (PyTorch) » dans la page Routage IA (badge chargé/absent, device, paramètres, mtime, bouton ⟳ Recharger)
+    79→    79→- Docs : guide-pack-wow §1.5 routage interactif + §1.6 modèle RL, contracts.md §12, README extensions v0.4, OpenAPI (2 routes, tags AI) — YAML validé
+    80→    80→- Validation : gofmt clean, go vet OK, go build OK, go test -race 11 pkgs OK, ruff OK, pytest 5/5, tsc --noEmit clean, tests réels GetModelInfo (device=none, astar sans torch) et ReloadModel (bogus -> modèle inchangé)
+    81→    81→- Rename repo GitHub : PATCH /repos/assihervey-coder/IA-PCB {"name":"YahriaCad"} -> full_name assihervey-coder/YahriaCad (ancienne URL IA-PCB redirige)
+    82→    82→- Remote mis à jour vers YahriaCad.git ; 2 commits poussés (f5ca2b9 worklog, aeb3f27 feat) ; tag v0.1.0 vérifié sur GitHub
+    83→    83→
+    84→    84→Stage Summary:
+    85→    85→- Livré : routage interactif « cliquer-et-router » dans l'éditeur, modèle RL PyTorch inspectable et rechargeable à chaud (REST + gRPC + UI), docs/OpenAPI à jour
+    86→    86→- Décisions : RPC gRPC additives (messages existants intacts), checkpoint path surchargeable côté moteur, échec de reload non destructif
+    87→    87→- Dépôt GitHub : https://github.com/assihervey-coder/YahriaCad (main = aeb3f27, tag v0.1.0)
+    88→    88→- Sécurité : PAT toujours exposé dans l'historique de chat — révoquer le token GitHub (rappel récurrent)
+    89→    89→
+    90→    90→---
+    91→    91→Task ID: 5
+    92→    92→Agent: Super Z (main)
+    93→    93→Task: Réparer CI (AI Engine Python + Frontend Next.js) + benchmark Arena A* vs RL un clic + export ODB++
+    94→    94→
+    95→    95→Work Log:
+    96→    96→- CI Python : cause = requirements non épinglés -> pip résout grpcio-tools 1.71.2 (protobuf<6 force le backtrack) alors que les stubs committés venaient de 1.83.1/protobuf 7.35.1 ; fix = pin grpcio==1.71.2 + grpcio-tools==1.71.2 + protobuf>=5.29,<6, régénération des stubs Python+Go avec la toolchain épinglée, drift vérifié nul avec la même commande que CI
+    97→    97→- CI Frontend : cause = absence de postcss.config dans yahriacad/frontend -> Next.js remonte au postcss.config.mjs racine (template @tailwindcss/postcss) qui échoue en CI sans node_modules racine (le node_modules racine local masquait le bug) ; fix = postcss.config.mjs local plugins vides ; repro validé en renommant temporairement node_modules racine
+    98→    98→- Benchmark Arena : application/arena/benchmark.go (port AIEngine minimal, AttachAI, ErrModelNotLoaded, Benchmark = même carnet -> A* local runFighter + RL via RouteBoard stratégie rl avec ConstraintSet du projet, score arène identique, verdict + ELO pairwise refactorisé updateEloPair) ; REST POST .../arena/benchmark + DTO + 503 rl_model_not_loaded ; WS arena-benchmark-<pid> ; MagicBar bouton 🧪 A* vs RL (toast dédié si modèle absent) ; 3 tests
+    99→    99→- Fix démo latent : le schéma cauchemar ne déclarait AUCUN composant (nets seuls) -> ComponentByRef échouait -> arène/benchmark sans broches ; composants + broches ajoutés en miroir des empreintes board
+   100→   100→- Export ODB++ : writer/odbpp_writer.go (matrix, netlist UNIT/NET/SUBNET/NODE, general, symbols, features par couche pclkN : P pastilles traversant répétées, L segments µm, V vias d<drill>, components top/bottom) ; export/odbpp.go (ExportToDir/ExportToTgz tar+gzip chemins relatifs) ; REST GET .../export/odbpp (application/gzip + X-YahriaCad-File-Count) ; carte Export frontend + api.exportODBPP ; 3 tests ; OpenAPI + contracts §13 + README
+   101→   101→- Smoke réel complet : backend Go + moteur Python + torch CPU installé + checkpoint PPO entraîné (6 000 pas, 650 317 paramètres) puis chargé À CHAUD via POST /ai/model/reload (torch importé lazily, chemin explicite car résolu au démarrage avant existence du fichier) ; benchmark A* 146.0 mm score 592.70 vs RL 196.5 mm/10 vias score 49.72 — verdict astar + ELO 1212/1188 ; export ODB++ .tgz inspecté (8 fichiers, features µm correctes)
+   102→   102→- Piège : vieux process pré-rename (kidcad-server) tenait le port 8080 -> go run bind fail silencieux côté smoke ; trouvé via ss -tlnp et tué
+   103→   103→- Checkpoint .pt local ajouté au .gitignore (config : jamais commité)
+   104→   104→
+   105→   105→Stage Summary:
+   106→   106→- Livré : CI Python + Frontend réparées (2 causes racines documentées), benchmark A* vs RL opérationnel de bout en bout avec vrai moteur PyTorch, export ODB++ v8 simplifié complet (writer + service + REST + UI + tests)
+   107→   107→- Décisions : pin toolchain gRPC plutôt que diff normalisé ; benchmark exige checkpoint chargé (jamais A* vs A* déguisé) ; ODB++ simplifié assumé et documenté (contour/pours restent couverts par Gerber)
+   108→   108→- Dépôt : commit 9cfcade poussé sur github.com/assihervey-coder/YahriaCad — CI à surveiller (3 jobs attendus verts)
+   109→   109→- Sécurité : PAT toujours à révoquer (rappel récurrent)
+   110→   110→
+   111→   111→---
+   112→   112→Task ID: 6
+   113→   113→Agent: Super Z (main)
+   114→   114→Task: Lot « prod hardening » — auth JWT, CORS strict, rate limit IA, /metrics Prometheus, Docker durci, E2E auth
+   115→   115→
+   116→   116→Work Log:
+   117→   117→- Audit prod-ready préalable : CI verte identifiée, mais API ouverte, CORS *, pas de limites, pas de /metrics, image AI générique avec pip au démarrage
+   118→   118→- Déps Go épinglées en go 1.22 (GOTOOLCHAIN=local, go mod edit + tidy) : golang-jwt/jwt/v5 v5.3.1, x/time v0.5.0, prometheus/client_golang v1.19.1 — piège : go get @latest bumpait le go directive à 1.25 (casserait Docker golang:1.22-alpine)
+   119→   119→- config.go : AuthEnabled/JWTSecret/JWTTTL/AuthUsers/AIRateRPS/AIRateBurst (env + JSON file), secret => auth implicite, isTruthy
+   120→   120→- infrastructure/auth : Service JWT HS256 (claims sub/iss/iat/exp), users bcrypt (préfixe $2) ou clair (comparaison constante), Login/Verify (alg confusion + issuer + expiration requis), GenerateEphemeralSecret, Middleware (publics /healthz /metrics /auth/login, OPTIONS passant, ?token= pour WS), IdentityFrom(ctx)
+   121→   121→- rest : auth_handler.go (login 200/401/503 auth_disabled, me), ratelimit.go (buckets par IP, sweep 10 min, X-Forwarded-For, 429+Retry-After), metrics.go (promauto, compteur+histogramme, normalizeRoute avec {id} + /api/v1/{unmatched} pour cardinalité bornée), router.go (chaîne CORS→recovery/log/instrument→auth, routes IA wrappées aiLimited)
+   122→   122→- CORS strict : ACAO reflétée seulement si origine dans AllowedOrigins (ou * explicite), Vary: Origin, rien sans Origin
+   123→   123→- main.go : buildAuthService (production sans secret => os.Exit(1) ; dev => éphémère ; production sans auth => warning « API OUVERTE »)
+   124→   124→- Frontend : lib/api/auth.ts (localStorage yahriacad_jwt), intercepteurs axios (Bearer + 401 hors /auth/ → purge + redirect /pages/login), page /pages/login (503 auth_disabled gérée avec « Continuer sans connexion »), logout btn project-manager, styles .auth-*
+   125→   125→- Docker : Dockerfile.ai multi-stage (venv, torch optionnel WITH_TORCH=true, healthcheck grpc channel, user nonroot), compose (build AI dédié, env JWT/rate limit backend, defaults démo surchargeables .env), .dockerignore racine (node_modules/checkpoints/.git…)
+   126→   126→- Docs : contracts.md §14, OpenAPI (/auth/login, /auth/me, bearerAuth, schémas — piège YAML : `Authorization: Bearer` en scalaire nu casse le parse, utiliser >-), README (table env + section v0.6), appsettings.prod.json, tests/e2e/README
+   127→   127→- E2E auth.spec.ts : 3 tests tolérant aux 3 modes (auth activée / auth_disabled / backend down), typecheck via tsc esModuleInterop
+   128→   128→- Smoke réel scripts/smoke_prod_hardening.sh : serveur binaire setsid + 18 checks (401/200/login/me/WS ?token=/ACAO allow+deny/burst→429+Retry-After/metrics 3 familles) — SMOKE OK ; piège sandbox : process détachés tués entre appels bash => tout le smoke dans une seule session script
+   129→   129→- Attente corrigée : ws ?token= => 400 (hub réel refuse handshake curl) et non 404 — 400 prouve le passage de l'auth
+   130→   130→- Validation finale : gofmt clean, go vet OK, go test -race 14 pkgs OK, ruff OK, pytest 5/5, tsc 0 err, next build OK (route /pages/login présente)
+   131→   131→- Commit e4a8065 poussé ; CI run e4a8065 completed success (3/3)
+   132→   132→
+   133→   133→Stage Summary:
+   134→   134→- Livré : enveloppe de production complète (auth JWT REST+WS, CORS strict, rate limit IA, /metrics Prometheus, Docker AI dédié + compose durci, page login + E2E) — backend démarre fail-fast en prod sans secret, comportement dev historique inchangé sans config
+   135→   135→- Décisions : auth opt-in (compat CI/dev), bcrypt ou clair (warn), /metrics public, rate limit désactivable par config, torch non embarqué par défaut dans l'image AI
+   136→   136→- Dépôt : github.com/assihervey-coder/YahriaCad main = e4a8065, CI verte
+   137→   137→- Restant pour « prod-ready » complet : TLS/HTTPS (reverse proxy documenté), dashboards Grafana à brancher, PAT GitHub toujours à révoquer
+   138→   138→
+   139→   139→---
+   140→   140→Task ID: 7
+   141→   141→Agent: Super Z (main)
+   142→   142→Task: Guide de démarrage pas-à-pas YahriaCad en PDF (style tech sombre, 8-12 p., public owner)
+   143→   143→
+   144→   144→Work Log:
+   145→   145→- Chargé skill pdf complet (SKILL.md → creative-flow.md → fonts/overflow/pagination/typography/palette/cover/cover-backgrounds/charts)
+   146→   146→- Clarifications utilisateur : public = owner, périmètre complet app, 8-12 pages, tech sombre, endpoints+archi+checklist+dépannage, niveau intermédiaire
+   147→   147→- Faits collectés dans le repo : router.go (endpoints), Makefile, docker-compose (ports, admin:admin, WITH_TORCH), config.go (YAHRIACAD_*), auth_handler, worklog (benchmark réel A* 592.70 vs RL 49.72)
+   148→   148→- HTML creative-flow 720×1020 : couverture (traces PCB cuivre SVG ≤6%), 10 sections (démarrage, archi CSS 6 nœuds, parcours, routage IA, Arena, vérifs, exports, API, dépannage, checklist) + ending
+   149→   149→- Pièges résolus : KaTeX auto-injecté par les $ des prompts (stub renderMathInElement), Google Fonts inaccessibles en Chromium headless (subset fonttools + data URI inline), Paged.js ne fetch pas les CSS file:// (inline), emoji ⚡/🧪 remplacés par SVG inline cuivre, œ/→ ajoutés au subset, · liés par nbsp (règle ponctuation), grande table API laissée splittable (>8 lignes + thead répété), page 11 orpheline densifiée (mémo make + observabilité, 8,5%→54,6%)
+   150→   150→- Validation : poster_validate (HTML OK ; cover_validate = faux positifs hors couverture, couverture vérifiée 0 collision), pdf_qa.py final = PASS intégral, 0 U+FFFD, polices 100% Inter/JetBrainsMono embarquées, remplissage 54-92% par page
+   151→   151→- Métadonnées PDF : Title/Author/Creator/Subject
+   152→   152→
+   153→   153→Stage Summary:
+   154→   154→- Livrés : download/yahriacad-guide-demarrage.pdf (12 p., 219 Ko, vectoriel) + yahriacad-guide-demarrage.html (source autonome, polices embarquées) + fonts/ (assets)
+   155→   155→- Décisions : style tech sombre famille cuivre unique (~35°), drapeaux cover_validate hors couverture ignorés (outil cover-only, faux positifs documentés), emojis UI remplacés par SVG vectoriels
+   156→   156→- Rappel sécurité réitéré dans le guide (PAT GitHub à révoquer)
+   157→   157→
+   158→   158→---
+   159→   159→Task ID: 8
+   160→   160→Agent: Super Z (main)
+   161→   161→Task: Vérification en conditions réelles — « l'app est-elle réellement fonctionnelle ? »
+   162→   162→
+   163→   163→Work Log:
+   164→   164→- go build ./... OK (toolchain /home/z/toolchain/go/bin, go 1.27.1) ; go test -race ./... : tous les paquets OK
+   165→   165→- Scripts persistés : scripts/smoke_functional.sh (parcours API complet, une session bash — piège sandbox process détachés respecté) + scripts/smoke_frontend.sh (next start prod)
+   166→   166→- Moteur IA démarré (ai-engine/cmd/ai-server/main.py, gRPC 50051, torch CPU, modèle chargé) puis backend (JWT admin:admin activé)
+   167→   167→- Parcours réel 15/15 : healthz ai_engine=ok + ai_model_loaded=true → login JWT → création projet → demo/nightmare (5 fautes, 5 composants, 6 nets) → placement synchrone 5 composants → routage A* job state=done 6/6 nets 36ms → layout tracks=12 vias=6 → DRC 6 règles (violations réelles détectées) → export Gerber zip 7 fichiers → export ODB++ tgz 8 fichiers → stats → /metrics 193 lignes yahriacad_* → 401 sans jeton
+   168→   168→- Frontend prod build : 6/6 pages 200 (/, /pages/login, /pages/pcb-layout, /pages/project-manager, /pages/schematic-editor, /pages/export), titre YahriaCad
+   169→   169→- Pièges script : endpoints place SYNCHRONE (renvoie la carte, pas de job_id) ; champ job = state (pas status) ; cmd build = backend/cmd/yahriacad-server ; routes frontend réelles = pcb-layout/project-manager/schematic-editor/export
+   170→   170→- Sans moteur IA : place/route renvoient proprement 503 ai_unreachable (dégradation gracieuse confirmée)
+   171→   171→
+   172→   172→Stage Summary:
+   173→   173→- VERDICT : app réellement fonctionnelle de bout en bout (backend + IA + frontend), preuve live 15/15 + 6/6
+   174→   174→- Limites documentées : moteur IA à lancer séparément (make run-ai) ; stockage mémoire par défaut (YAHRIACAD_DB_URL pour persister) ; RL nécessite checkpoint entraîné ; TLS via reverse proxy
+   175→   175→
+   176→   176→---
+   177→   177→Task ID: 9
+   178→   178→Agent: Super Z (main)
+   179→   179→Task: Test réel avec de vraies cartes KiCad officielles (import → placement → routage → DRC → exports)
+   180→   180→
+   181→   181→Work Log:
+   182→   182→- Téléchargé 2 vraies cartes depuis le repo officiel KiCad (demos/, format kicad_pcb version 20241229, pcbnew 9.0) : complex_hierarchy (68 empreintes, 52 nets, 884 Ko) + video (189 empreintes, 588 nets, 5,8 Mo)
+   183→   183→- Import multipart champ file (export_handler.go, max 64 Mo) ; lecteur kicad.go parse net/footprint/pad/segment/via
+   184→   184→- complex_hierarchy : import 68 comp / 52 nets / 364 pistes / 0 warning → placement 68 OK → routage A* 52/52 nets en 6 363 ms → DRC 6 règles (violations citant les VRAIS nets KiCad ex. /ampli_ht_vertical/S_OUT+) → Gerber 7 fichiers + ODB++ 8 fichiers ; netlist ODB++ contient les vrais nets (+12V, -VAA, /12Vext…)
+   185→   185→- video : import 189 comp / 588 nets / 7 932 pistes / 808 vias / 0 warning → placement 189 OK → routage A* 588/588 nets en 315,9 s (script smoke_video_stress.sh) → export Gerber 95,7 Ko HTTP 200
+   186→   186→- Scripts persistés : scripts/smoke_kicad_real.sh + scripts/smoke_video_stress.sh
+   187→   187→- Pièges : f-string avec \" dans python -c => SyntaxError (utiliser clés simples) ; layout 5,8 Mo en argv => Argument list too long (passer par fichier) ; routage 588 nets > fenêtre 240 s du premier script (refait avec 480 s)
+   188→   188→
+   189→   189→Stage Summary:
+   190→   190→- Le scénario « transition KiCad » tient sur le terrain : deux vraies cartes pcbnew 9 traversent le pipeline complet sans warning, avec routage A* complet (52 nets 6,4 s ; 588 nets 5 min 16 s) et exports producteur contenant les données KiCad réelles
+   191→   191→- Limite mesurée : 588 nets en 5 min 16 s CPU = utilisable mais lent ; WS de progression utile ; DRC signale des clearances bord (carte démo dense) — preuve que le DRC lit les vrais nets
+   192→   192→
+   193→   193→---
+   194→   194→Task ID: 10
+   195→   195→Agent: Super Z (main)
+   196→   196→Task: Round-trip KiCad complet + entraînement RL ~20k pas + benchmark A* vs RL (vraie carte et carte démo)
+   197→   197→
+   198→   198→Work Log:
+   199→   199→- Chantier round-trip : writer/kicad_writer.go (s-expr version 20241229, ids couches KiCad 9 relevés sur vrais fichiers F.Cu=0/B.Cu=2/In1.Cu=4/Mask=1/SilkS=5/Edge.Cuts=25, net 0 vide, pads locaux, segments par paire, vias blind, gr_rect Edge.Cuts, uuids v4) + exportapp.KicadService + GET /export/kicad + main câblé + OpenAPI + README
+   200→   200→- Fix reader kicad.go : lecture (property "Reference"/"Value") pcbnew ≥7 (fallback fp_text ≤6 conservé) — sinon refs FP1/FP2 après round-trip
+   201→   201→- Bug corrigé : (kicad_pcb jamais fermé → parenthèses déséquilibrées ; test structure + round-trip complet via Registry.Read : positions, pads locaux, nets, segments, via conservés — verts
+   202→   202→- Round-trip RÉEL (smoke_roundtrip_kicad.sh) : complex_hierarchy 68 comp/52 nets/364 pistes → routage A* done → export 197,9 Ko (68 footprints, 165 pads, 835 segments, 353 vias, vrais nets +12V/-VAA//12Vext/GND présents) → ré-import 0 warning : 68/52/835/353 — COMPARAISON OK
+   203→   203→- Commit 63c0761 poussé (10 fichiers, 715 insertions) ; racine repo = /home/z/my-project confirmée (scripts/ suivis aussi)
+   204→   204→- Entraînement : calibrage 2048 pas = 49 s (~41 pas/s) ; run 20k avec --save-every 5000 tué au timeout 600 s ; model_v2.pt valide (650 317 params, mtime 13:51) — dernier checkpoint ~15-20k pas (non tranchable)
+   205→   205→- Benchmark carte démo (smoke_bench_numbers.sh, 6 nets) : A* 6/6, 146,0 mm, 0 via, 0 ms, score 592,70 vs RL 6/6, 196,5 mm, 10 vias, 45 950 ms, score 130,67 — verdict astar, marge 462,03, ELO 1212/1188
+   206→   206→- PROGRESSION RL mesurée : même carte, même protocole que le run 6k (Task 5) : score 49,72 → 130,67 (+163 %) à ~3-4× plus d'entraînement ; longueur/vias identiques (politique déterministe), le score progresse via pénalités temps/complétion
+   207→   207→- Scaling vraie carte (smoke_bench_real_board.sh, complex_hierarchy 52 nets) : RL non terminé après 480 s (budget env : max(64, 4×(W+H)×couches) pas/episode × 52 nets × inférence CPU) ; A* même carte = 6,4 s. pic_programmer inutilisable (pads (net "VCC") sans numéro non mappés par le reader)
+   208→   208→- Scripts pushés fc1a0c7 ; API GitHub injoignable depuis la sandbox → CI à vérifier côté GitHub (gates locaux verts : gofmt/vet/test -race tous paquets)
+   209→   209→
+   210→   210→Stage Summary:
+   211→   211→- Livré : export .kicad_pcb pcbnew 9 complet avec round-trip prouvé sur vraie carte (données conservées à l'identique, routage réimportable), reader modernisé properties pcbnew ≥7
+   212→   212→- Mesuré : RL +163 % de score à ~20k pas mais toujours dominé par A* (ELO 1212/1188) ; RL ne passe PAS à l'échelle 52 nets réels en <8 min CPU — la limite est structurelle (inférence pas-à-pas), pas un bug
+   213→   213→- Décisions : pas d'entraînement sur vraie carte (le trainer reste sur curriculum synthétique par conception) ; benchmark sur vraie carte reporté comme chantier futur (budget de pas à réduire pour l'inférence grande grille)
+   214→   214→- Restant : vérifier CI 3/3 sur GitHub (2 commits), PAT toujours à révoquer
+   215→   215→
+   216→   216→---
+   217→   217→Task ID: 11
+   218→   218→Agent: Super Z (main)
+   219→   219→Task: Imitation learning (behavioral cloning de A*) — le RL apprend en observant l'expert
+   220→   220→
+   221→   221→Work Log:
+   222→   222→- Hook debug YAHRIACAD_DUMP_ROUTE_INPUT dans RouteBoard (src/service.py) : dump JSON des entrees EXACTES de l'env (board+nets) -> demonstrations fideles a l'inference de production, zero duplication de conversion
+   223→   223→- ai-engine/training/router/imitation.py (~790 l.) : generate (trajectoire experte par net + cellules-sondes etiquetees par le champ de reprise A* + sur-echantillonnage x3 des cas d'evitement + curriculum synthetique) / train (cross-entropy, split par demo, batchs homogenes par forme de grille, budget temps, reprise --init-from, checkpoint au format PPO) / eval (A* vs BC sur deux envs separes, repli A* net par net, cap de pas) / collect_dagger (passe DAgger : etats visites par la politique, etiquetes par A*)
+   224→   224→- 3 BUGS REELS trouves par le pipeline d'imitation :
+   225→   225→  1) pcb_env.step : le via vers un pad cible ne declenchait JAMAIS le succes (controle uniquement dans la branche move) -> episodes finissant sur un via jamais gagnants, en train comme en inference RL ; corrige (succes verifie pour les deux branches)
+   226→   226→  2) L'observation NE CONTENAIT PAS la position de l'agent (POMDP degrade : obs constante d'un pas a l'autre, politique gloutonne = action constante) ; corrige : canal layer_count+3 = blob gradue de position (anneaux 1.0/0.6/0.3, rayon 2, helper partage position_plane) -> in_channels 5 -> 6, config.yaml + train.py (in_channels dynamique) ; checkpoints 5 canaux incompatibles (assumé, re-entrainement)
+   227→   227→  3) Le "RL 6/6, 196.5mm" du benchmark historique etait majoritairement du repli A* deguise : le checkpoint PPO v2 rate 10/10 nets en rollout glouton pur (verifie) ; le masquage d'actions + canal position rendent la mesure honnete
+   228→   228→- Architecture ActorCritic v2 (ppo_agent.py) : double pooling avg+max (le max preserve les pics epars), tete locale fully-conv (logits par cellule a la res 1/8, echantillonnes a la cellule de l'agent recuperee du blob), convs dilatees d2/d4 (champ receptif ~152 px contre les minimaux locaux), branche globale fusionnee, et MASQUAGE DES ACTIONS INVALIDES dans forward (fonction deterministe de l'obs, identique train/inference : collisions impossibles en glouton, verifie par test path_len==steps+1)
+   229→   229→- Iterations mesurees (carte tenue a l'ecart) : BC 1 carte -> memorisation (val 0.66->0.22) ; curriculum 32-48 cartes res 0.5mm + sondes 40 -> val 0.80 ; DAgger -> val 0.88 ; direction naive vs expert = 71.8% (reference obstacle-avoidance)
+   230→   230→- Smoke E2E scripts/smoke_imitation_train.sh + smoke_imitation_eval.sh : vraie carte complex_hierarchy -> dump (board 100x80mm, 52 nets) -> 510 demos / 38559 pas -> train warm-start (2 epochs, train 0.907 / val 0.85) -> fine-tune reel-seul avec sondes -> eval hors-ligne -> reload a chaud (loaded=true, 1 397 241 params) -> arene -> routage RL en ligne
+   231→   231→- Pièges d'infra résolus : moteurs IA ORPHELINS des sessions precedentes tenaient 50051 via SO_REUSEPORT et interceptaient les requetes (pkill + purge en tete des smokes) ; `cd x && python3 ... &` capture le PID du sous-shell (moteur orphelin au kill du trap -> lancement sans commande composee) ; backend demarre AVANT le bind du moteur -> backoff gRPC "connection refused" (ordre moteur->attente stricte->backend)
+   232→   232→- Amelioration produit : _rl_route plafonne le budget de pas a ~4x la distance manhattan optimale (+96) -> echec rapide par net et repli A* immediat ; routage RL 6 nets sur la VRAIE carte : done en 42 s (etait >440 s sans finir)
+   233→   233→- Arene finale (carte demo 6 nets) : A* 592.70 (146.0mm, 0 via) vs RL(BC) 461.75 (196.5mm, 10 vias, 6/6 nets) en 12.8 s — score RL x3.5 vs PPO 20k (130.67), marge reduite de 462 a 131 points
+   234→   234→- Limite honnete : transfert vers la grande carte reelle faible (BC seul 2/52, repli A* couvre le reste) — voie d'echelle : curriculum a resolution appariee, plus de sondes reelles, rondes DAgger supplementaires
+   235→   235→- Gates : ruff clean, pytest 9/9 (dont 4 tests imitation : encodage actions, rejeu bit-exact des obs, roundtrip npz sans pickle, train+checkpoint+non-collision)
+   236→   236→
+   237→   237→Stage Summary:
+   238→   238→- Livre : pipeline d'imitation learning complet (dump -> demos+sondes -> BC+DAgger -> eval -> reload a chaud), 3 bugs d'environnement corriges (via-cible, position absente, illusion de benchmark), architecture reactive + masquage d'actions, budget de pas adaptatif en production
+   239→   239→- Mesure cle : le RL(BC) ferme la majeure partie de l'ecart arene (461.75 vs 592.70, etait 49.72-130.67) et le mode RL redevient utilisable en ligne sur vraie carte (42 s pour 6 nets)
+   240→   240→- Restant : transfert grande carte (resolution appariee + DAgger reel), PAT GitHub toujours a revoker
+   241→   241→
