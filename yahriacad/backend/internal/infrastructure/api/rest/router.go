@@ -61,6 +61,7 @@ type Deps struct {
 	BOM         *exportapp.BOMService
 	STEP        *exportapp.STEPService
 	ODB         *exportapp.ODBService
+	Kicad       *exportapp.KicadService
 	Hub         *yahriacadws.Hub
 	Logger      *slog.Logger
 	Version     string
@@ -171,6 +172,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/bom", d.handleExportBOM)
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/step", d.handleExportSTEP)
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/odbpp", d.handleExportODBPP)
+	mux.HandleFunc("GET /api/v1/projects/{id}/export/kicad", d.handleExportKicad)
 
 	if d.Hub != nil {
 		mux.HandleFunc("GET /ws/v1/progress", d.Hub.ServeWS)

@@ -176,3 +176,30 @@ func (d *Deps) handleExportODBPP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-YahriaCad-File-Count", strconv.Itoa(len(files)))
 	_, _ = w.Write(payload)
 }
+
+// handleExportKicad answers GET /api/v1/projects/{id}/export/kicad with the
+// board serialized as a KiCad .kicad_pcb file (s-expression, pcbnew 9),
+// closing the KiCad round-trip loop.
+func (d *Deps) handleExportKicad(w http.ResponseWriter, r *http.Request) {
+	if d.Kicad == nil {
+		writeError(w, r, http.StatusServiceUnavailable, "internal", errNoService)
+		return
+	}
+
+	path, err := d.Kicad.ExportToFile(r.Context(), r.PathValue("id"))
+	if err != nil {
+		mapServiceError(w, r, err)
+		return
+	}
+
+	payload, err := os.ReadFile(path)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "lecture du fichier : "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(path)))
+	_, _ = w.Write(payload)
+}

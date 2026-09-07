@@ -118,6 +118,7 @@ func main() {
 	ercChecker := verificationapp.NewERCChecker(repo)
 	gerberSvc := exportapp.NewGerberService(repo, writer.NewGerberWriter(), cfg.DataDir, log)
 	bomSvc := exportapp.NewBOMService(repo, log)
+	kicadSvc := exportapp.NewKicadService(repo, writer.NewKicadWriter(), cfg.DataDir, log)
 	stepSvc := exportapp.NewSTEPService(repo, writer.NewStepWriter(), cfg.DataDir, log)
 	odbSvc := exportapp.NewODBService(repo, writer.NewODBPPWriter(), cfg.DataDir, log)
 
@@ -175,6 +176,7 @@ func main() {
 		BOM:            bomSvc,
 		STEP:           stepSvc,
 		ODB:            odbSvc,
+		Kicad:          kicadSvc,
 		Hub:            hub,
 		Logger:         log,
 		Version:        version,

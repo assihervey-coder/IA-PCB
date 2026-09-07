@@ -495,6 +495,20 @@ func (st *kicadParseState) readFootprint(fp *sNode) {
 
 	ref := fmt.Sprintf("FP%d", len(st.footprints)+1)
 	value := ""
+	// pcbnew ≥ 7 stocke référence et valeur dans des (property "Reference" /
+	// "Value" …) ; pcbnew ≤ 6 utilisait (fp_text reference/value …).
+	for _, prop := range fp.childrenWithTag("property") {
+		switch prop.arg(0) {
+		case "Reference":
+			if v := prop.arg(1); v != "" {
+				ref = v
+			}
+		case "Value":
+			if v := prop.arg(1); v != "" {
+				value = v
+			}
+		}
+	}
 	for _, txt := range fp.childrenWithTag("fp_text") {
 		switch txt.arg(0) {
 		case "reference":

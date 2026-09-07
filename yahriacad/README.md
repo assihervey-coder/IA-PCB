@@ -254,6 +254,7 @@ détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/arc
 | 🤖 Modèle RL (PyTorch) pilotable | `GET/POST /api/v1/ai/model[/reload]` + panneau « Modèle RL » | état détaillé du checkpoint (device, paramètres, horodatage, stratégie effective) et **rechargement à chaud** — basculez sur un `.pt` fraîchement entraîné (`make train-router`) sans redémarrer le moteur ; en cas d'échec le modèle précédent et le repli A* sont conservés |
 | 🔌 Contrat gRPC étendu (additif) | `yahriacad.pcb.v1` | deux nouvelles RPC `GetModelInfo` / `ReloadModel`, messages existants inchangés ; stubs Go + Python régénérés (`make proto`) |
 | 📦 Export ODB++ | `GET .../export/odbpp` + carte « Job ODB++ » | job ODB++ v8 simplifié en .tgz — matrix, netlist, features cuivre par couche (L/P/V), placements composants — le format d'échange des télématics (contracts §13) |
+| 🔄 Export KiCad | `GET .../export/kicad` | carte en `.kicad_pcb` s-expression (version fichier 20241229, pcbnew 9) — empreintes/pads/nets/pistes/vias/contour ; boucle le round-trip : carte KiCad importée → routée → rouvrable dans pcbnew |
 
 ## Prod hardening v0.6 — auth JWT, CORS strict, rate limit, métriques
 

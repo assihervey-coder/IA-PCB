@@ -767,6 +767,34 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/projects/{id}/export/kicad:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Export]
+      summary: Export KiCad (.kicad_pcb, pcbnew 9)
+      description: |
+        Carte sérialisée au format s-expression `.kicad_pcb`
+        (version de fichier 20241229) : empreintes avec pads et nets,
+        pistes (segments), vias, contour Edge.Cuts. Boucle le
+        round-trip KiCad — une carte importée depuis KiCad, placée et
+        routée par YahriaCad se rouvre dans pcbnew.
+      operationId: exportKiCad
+      responses:
+        '200':
+          description: Fichier .kicad_pcb
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Projet introuvable ou sans carte
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/projects/{id}/export/bom:
     parameters:
       - $ref: '#/components/parameters/ProjectId'
