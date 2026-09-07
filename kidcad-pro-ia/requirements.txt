@@ -1,0 +1,22 @@
+# ==============================================================
+# KidCAD-Pro-IA — dépendances Python du moteur IA (ai-engine/)
+# Python >= 3.10
+# ==============================================================
+
+numpy>=1.24
+grpcio>=1.60
+grpcio-tools>=1.60
+protobuf>=4.25,<6
+PyYAML>=6.0
+
+# Tests
+pytest>=7.4
+
+# --------------------------------------------------------------
+# Entraînement par apprentissage par renforcement (optionnel) :
+# requis uniquement pour entraîner les modèles ou générer les
+# checkpoints .pt (scripts/generate-models.sh) — l'inférence
+# fonctionne SANS torch grâce au routeur A* intégré.
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# --------------------------------------------------------------
+# torch>=2.2

@@ -1,0 +1,176 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://kidcad.pro/schemas/interchange.schema.json",
+  "title": "KidCAD Interchange Format",
+  "description": "Format d'échange natif (.kidcad.json) : import/export universel entre KidCAD et outils tiers",
+  "type": "object",
+  "required": ["format", "version"],
+  "properties": {
+    "format": { "const": "kidcad-interchange" },
+    "version": { "const": "1.0" },
+    "meta": {
+      "type": "object",
+      "properties": {
+        "generator": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" },
+        "source": { "type": "string", "description": "Format d'origine (kicad, eagle, ...)" }
+      }
+    },
+    "schematic": { "$ref": "#/definitions/schematic" },
+    "layout": { "$ref": "#/definitions/layout" }
+  },
+  "definitions": {
+    "point": {
+      "type": "object",
+      "required": ["x", "y"],
+      "properties": {
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "pin": {
+      "type": "object",
+      "required": ["number"],
+      "properties": {
+        "number": { "type": "string" },
+        "name": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    },
+    "component": {
+      "type": "object",
+      "required": ["ref", "footprint"],
+      "properties": {
+        "ref": { "type": "string" },
+        "value": { "type": "string" },
+        "footprint": { "type": "string" },
+        "x": { "type": "number", "default": 0 },
+        "y": { "type": "number", "default": 0 },
+        "rotation": { "type": "number", "default": 0 },
+        "fixed": { "type": "boolean", "default": false },
+        "pins": { "type": "array", "items": { "$ref": "#/definitions/pin" } }
+      }
+    },
+    "net": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "net_class": { "type": "string", "default": "default" },
+        "connections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["component_ref", "pin_number"],
+            "properties": {
+              "component_ref": { "type": "string" },
+              "pin_number": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "schematic": {
+      "type": "object",
+      "required": ["components"],
+      "properties": {
+        "name": { "type": "string" },
+        "components": { "type": "array", "items": { "$ref": "#/definitions/component" } },
+        "nets": { "type": "array", "items": { "$ref": "#/definitions/net" } }
+      }
+    },
+    "pad": {
+      "type": "object",
+      "required": ["name", "x", "y", "width", "height", "layer"],
+      "properties": {
+        "name": { "type": "string" },
+        "shape": { "type": "string", "enum": ["rect", "roundrect", "circle", "oval"], "default": "rect" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "width": { "type": "number" },
+        "height": { "type": "number" },
+        "rotation": { "type": "number", "default": 0 },
+        "layer": { "type": "integer", "minimum": 0 },
+        "net": { "type": "string" }
+      }
+    },
+    "footprint": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string" },
+        "value": { "type": "string" },
+        "pads": { "type": "array", "items": { "$ref": "#/definitions/pad" } },
+        "body_width_mm": { "type": "number", "default": 0 },
+        "body_height_mm": { "type": "number", "default": 0 },
+        "height_mm": { "type": "number", "default": 1.6 }
+      }
+    },
+    "track": {
+      "type": "object",
+      "required": ["net", "layer", "width", "points"],
+      "properties": {
+        "net": { "type": "string" },
+        "layer": { "type": "integer", "minimum": 0 },
+        "width": { "type": "number", "exclusiveMinimum": 0 },
+        "points": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/definitions/point" }
+        }
+      }
+    },
+    "via": {
+      "type": "object",
+      "required": ["x", "y", "from_layer", "to_layer", "diameter", "drill"],
+      "properties": {
+        "net": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "from_layer": { "type": "integer", "minimum": 0 },
+        "to_layer": { "type": "integer", "minimum": 0 },
+        "diameter": { "type": "number", "exclusiveMinimum": 0 },
+        "drill": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "required": ["board"],
+      "properties": {
+        "board": {
+          "type": "object",
+          "required": ["width_mm", "height_mm", "layer_count"],
+          "properties": {
+            "width_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "height_mm": { "type": "number", "exclusiveMinimum": 0 },
+            "layer_count": { "type": "integer", "minimum": 1, "maximum": 34 },
+            "layer_names": { "type": "array", "items": { "type": "string" } }
+          }
+        },
+        "footprints": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/definitions/footprint" }
+        },
+        "components": {
+          "type": "array",
+          "items": {
+            "allOf": [
+              { "$ref": "#/definitions/component" },
+              {
+                "type": "object",
+                "required": ["footprint"],
+                "properties": {
+                  "footprint": { "type": "string", "description": "Nom de l'empreinte dans footprints" }
+                }
+              }
+            ]
+          }
+        },
+        "tracks": { "type": "array", "items": { "$ref": "#/definitions/track" } },
+        "vias": { "type": "array", "items": { "$ref": "#/definitions/via" } },
+        "nets": { "type": "array", "items": { "$ref": "#/definitions/net" } }
+      }
+    }
+  }
+}

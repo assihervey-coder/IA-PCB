@@ -1,0 +1,21 @@
+# dépendances
+node_modules/
+
+# next.js
+.next/
+out/
+
+# builds locaux
+*.tsbuildinfo
+next-env.d.ts.bak
+
+# environnements
+.env
+.env*.local
+
+# divers
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.DS_Store
+.vercel

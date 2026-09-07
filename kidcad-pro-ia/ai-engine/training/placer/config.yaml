@@ -1,0 +1,8 @@
+# Placement : parametres du recuit simule (service PlanPlacement)
+iterations: 2000        # borne d'iterations
+time_budget_ms: 2000    # budget temps reel par requete
+seed: 42                # graine (determinisme)
+overlap_weight: 5.0     # cout d'un mm^2 de recouvrement d'empreintes
+step_max_mm: 2.0        # amplitude initiale des deplacements
+step_min_mm: 0.05       # amplitude finale
+border_margin_mm: 0.25  # marge au bord de carte

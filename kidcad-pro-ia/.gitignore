@@ -1,0 +1,78 @@
+# ==============================================================
+# KidCAD-Pro-IA — .gitignore (Go + Python + Node + Docker)
+# ==============================================================
+
+# --- Go / backend ---
+/bin/
+/backend/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/vendor/
+
+# --- Python / ai-engine ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+*.log
+
+# --- Modèles ML entraînés (générés par scripts/generate-models.sh) ---
+*.pt
+!ai-engine/training/**/model_v1.pt
+
+# --- Datasets (volumineux, hors git) ---
+ai-engine/data/raw/*
+ai-engine/data/processed/*
+ai-engine/data/augmentations/*
+!ai-engine/data/raw/.gitkeep
+!ai-engine/data/processed/.gitkeep
+!ai-engine/data/augmentations/.gitkeep
+
+# --- Node / frontend ---
+node_modules/
+.next/
+out/
+.npm/
+*.tsbuildinfo
+.eslintcache
+coverage/
+playwright-report/
+test-results/
+blob-report/
+
+# --- Exports générés par le backend (dossier de travail local) ---
+/data/
+/kidcad-pro-ia/data/
+
+# --- Docker ---
+*.pid
+.docker/
+
+# --- IDE & OS ---
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# --- Environnement ---
+.env
+.env.local
+.env.*.local

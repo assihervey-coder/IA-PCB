@@ -1,0 +1,1511 @@
+// KidCAD-Pro-IA — feuille de styles globale (thème sombre professionnel).
+@use "./variables" as *;
+@use "./mixins" as *;
+
+// ============================================================
+// 1. Reset et base
+// ============================================================
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: $bg;
+  color: $text;
+  font-family: $font-stack;
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3,
+h4,
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: $accent;
+  text-decoration: none;
+}
+
+code {
+  font-family: $mono-stack;
+  font-size: 0.92em;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: $panel-2;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #26375a;
+  border-radius: 8px;
+  border: 2px solid $panel-2;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #33477a;
+}
+
+// ============================================================
+// 2. Utilitaires
+// ============================================================
+.panel {
+  @include panel;
+}
+
+.muted {
+  color: $muted;
+}
+
+.mono {
+  font-family: $mono-stack;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid transparent;
+  white-space: nowrap;
+
+  &.badge-ok {
+    color: $green;
+    background: rgba(52, 211, 153, 0.12);
+    border-color: rgba(52, 211, 153, 0.35);
+  }
+
+  &.badge-error {
+    color: $red;
+    background: rgba(248, 113, 113, 0.12);
+    border-color: rgba(248, 113, 113, 0.35);
+  }
+
+  &.badge-warning {
+    color: $warn;
+    background: rgba(251, 191, 36, 0.12);
+    border-color: rgba(251, 191, 36, 0.35);
+  }
+
+  &.badge-info {
+    color: $accent;
+    background: rgba(34, 211, 238, 0.1);
+    border-color: rgba(34, 211, 238, 0.3);
+  }
+
+  &.badge-muted {
+    color: $muted;
+    background: rgba(140, 160, 192, 0.1);
+    border-color: rgba(140, 160, 192, 0.3);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #16213a;
+  border-radius: $radius-sm;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(140, 160, 192, 0.15), transparent);
+    animation: shimmer 1.4s infinite;
+  }
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.spinner {
+  width: 26px;
+  height: 26px;
+  border: 3px solid $border;
+  border-top-color: $accent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.page-loading {
+  min-height: 60vh;
+  @include flex-center;
+  flex-direction: column;
+  gap: 14px;
+  color: $muted;
+}
+
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid rgba(251, 191, 36, 0.4);
+  background: rgba(251, 191, 36, 0.08);
+  color: $warn;
+  border-radius: $radius;
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+// ============================================================
+// 3. Coque applicative (sidebar + header)
+// ============================================================
+.app-shell {
+  display: flex;
+  min-height: 100vh;
+}
+
+.app-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.app-content {
+  flex: 1;
+  padding: 22px 26px 40px;
+  min-width: 0;
+}
+
+.sidebar-rail {
+  width: $sidebar-w;
+  flex-shrink: 0;
+  background: $panel-2;
+  border-right: 1px solid $border;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  transition: width 0.18s ease;
+  overflow: hidden;
+
+  .rail-brand {
+    height: $header-h;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0 16px;
+    border-bottom: 1px solid $border;
+    color: $accent;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .rail-nav {
+    padding: 12px 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .rail-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: $radius-sm;
+    color: $muted;
+    font-weight: 600;
+    white-space: nowrap;
+    transition: background 0.12s ease, color 0.12s ease;
+
+    svg {
+      flex-shrink: 0;
+    }
+
+    &:hover {
+      background: rgba(34, 211, 238, 0.08);
+      color: $text;
+    }
+
+    &.active {
+      background: rgba(34, 211, 238, 0.14);
+      color: $accent;
+    }
+  }
+
+  .rail-footer {
+    margin-top: auto;
+    padding: 14px 16px;
+    border-top: 1px solid $border;
+    color: $muted;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+}
+
+.rail-collapsed .sidebar-rail {
+  width: $sidebar-w-collapsed;
+
+  .rail-label,
+  .rail-brand span,
+  .rail-footer span {
+    display: none;
+  }
+
+  .rail-item,
+  .rail-brand {
+    justify-content: center;
+    padding: 10px;
+  }
+}
+
+.header {
+  height: $header-h;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: rgba(11, 18, 32, 0.85);
+  border-bottom: 1px solid $border;
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  backdrop-filter: blur(6px);
+
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .header-logo {
+    font-weight: 800;
+    font-size: 16px;
+    color: $text;
+    letter-spacing: 0.02em;
+
+    span {
+      color: $accent;
+    }
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .demo-badge {
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 700;
+    color: $warn;
+    border: 1px solid rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.1);
+  }
+
+  .backend-status {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: $muted;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: $muted;
+
+    &.ok {
+      background: $green;
+      box-shadow: 0 0 6px rgba(52, 211, 153, 0.8);
+    }
+
+    &.down {
+      background: $red;
+      box-shadow: 0 0 6px rgba(248, 113, 113, 0.8);
+    }
+  }
+}
+
+// ============================================================
+// 4. Boutons
+// ============================================================
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: $radius-sm;
+  font-family: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, transform 0.05s ease;
+
+  &:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+
+  &.btn-md {
+    padding: 9px 16px;
+    font-size: 13px;
+  }
+
+  &.btn-sm {
+    padding: 6px 11px;
+    font-size: 12px;
+  }
+
+  &.btn-primary {
+    background: $accent;
+    color: #06222b;
+
+    &:hover:not(:disabled) {
+      background: #5cdff0;
+    }
+  }
+
+  &.btn-secondary {
+    background: #17233c;
+    color: $text;
+    border-color: $border;
+
+    &:hover:not(:disabled) {
+      border-color: #2f4470;
+      background: #1b2a48;
+    }
+  }
+
+  &.btn-danger {
+    background: rgba(248, 113, 113, 0.14);
+    color: $red;
+    border-color: rgba(248, 113, 113, 0.4);
+
+    &:hover:not(:disabled) {
+      background: rgba(248, 113, 113, 0.24);
+    }
+  }
+
+  &.btn-ghost {
+    background: transparent;
+    color: $muted;
+
+    &:hover:not(:disabled) {
+      color: $text;
+      background: rgba(140, 160, 192, 0.1);
+    }
+  }
+}
+
+a.btn {
+  text-decoration: none;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: $radius-sm;
+  border: 1px solid $border;
+  background: transparent;
+  color: $muted;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+
+  &:hover:not(:disabled) {
+    color: $accent;
+    border-color: rgba(34, 211, 238, 0.4);
+    background: rgba(34, 211, 238, 0.08);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+// ============================================================
+// 5. Formulaires
+// ============================================================
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+
+  .field-label {
+    font-size: 12px;
+    font-weight: 700;
+    color: $muted;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .field-input,
+  .field-select {
+    background: $panel-2;
+    border: 1px solid $border;
+    border-radius: $radius-sm;
+    color: $text;
+    font-family: inherit;
+    font-size: 13px;
+    padding: 9px 11px;
+    outline: none;
+    transition: border-color 0.12s ease, box-shadow 0.12s ease;
+
+    &:focus {
+      border-color: rgba(34, 211, 238, 0.6);
+      box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
+    }
+
+    &::placeholder {
+      color: #566a8f;
+    }
+  }
+
+  .field-select {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, $muted 50%),
+      linear-gradient(135deg, $muted 50%, transparent 50%);
+    background-position: calc(100% - 16px) 55%, calc(100% - 11px) 55%;
+    background-size: 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 30px;
+  }
+}
+
+.field-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: $text;
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: $accent;
+    cursor: pointer;
+  }
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 14px;
+
+  @include responsive(640px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+// ============================================================
+// 6. Modales
+// ============================================================
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 16, 0.72);
+  backdrop-filter: blur(3px);
+  z-index: 100;
+  @include flex-center;
+  padding: 20px;
+}
+
+.modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow: auto;
+  background: $panel;
+  border: 1px solid $border;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-2;
+  animation: modal-in 0.14s ease;
+
+  .modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid $border;
+  }
+
+  .modal-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .modal-close {
+    background: transparent;
+    border: none;
+    color: $muted;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: $radius-sm;
+    display: inline-flex;
+
+    &:hover {
+      color: $text;
+      background: rgba(140, 160, 192, 0.12);
+    }
+  }
+
+  .modal-body {
+    padding: 18px 20px 20px;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 20px;
+    border-top: 1px solid $border;
+  }
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.confirm-message {
+  color: $text;
+  font-size: 14px;
+  padding: 4px 0 8px;
+}
+
+// ============================================================
+// 7. Squelettes de page
+// ============================================================
+.page {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 18px;
+
+  .page-title {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 0.01em;
+  }
+
+  .page-subtitle {
+    color: $muted;
+    margin-top: 3px;
+    font-size: 13px;
+  }
+
+  .page-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+}
+
+// ============================================================
+// 8. Gestionnaire de projets
+// ============================================================
+.grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: border-color 0.12s ease, transform 0.12s ease;
+
+  &:hover {
+    border-color: #2c3f6b;
+    transform: translateY(-2px);
+  }
+
+  .card-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .card-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .card-desc {
+    color: $muted;
+    font-size: 13px;
+    min-height: 38px;
+  }
+
+  .card-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    color: $muted;
+    font-size: 12px;
+  }
+
+  .card-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 4px;
+  }
+}
+
+.grid-skeleton {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+
+  .skeleton {
+    height: 168px;
+    border-radius: $radius;
+  }
+}
+
+.empty-state {
+  @include panel;
+  padding: 42px 20px;
+  text-align: center;
+  color: $muted;
+
+  strong {
+    display: block;
+    color: $text;
+    font-size: 15px;
+    margin-bottom: 6px;
+  }
+}
+
+// ============================================================
+// 9. Éditeurs (schéma + PCB)
+// ============================================================
+.editor-layout {
+  display: grid;
+  grid-template-columns: 1fr 270px;
+  gap: 16px;
+  align-items: stretch;
+
+  @include responsive(1000px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  padding: 0;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.canvas-status {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-top: 1px solid $border;
+  color: $muted;
+  font-size: 12px;
+  background: $panel-2;
+}
+
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.side-box {
+  padding: 14px;
+
+  .panel-title {
+    font-size: 12px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: $muted;
+    margin-bottom: 10px;
+  }
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 14px;
+  border-bottom: 1px solid $border;
+  background: $panel-2;
+
+  .toolbar-sep {
+    width: 1px;
+    height: 22px;
+    background: $border;
+    margin: 0 4px;
+  }
+
+  .zoom-label {
+    color: $muted;
+    font-size: 12px;
+    min-width: 52px;
+    text-align: center;
+  }
+}
+
+// ---- Éditeur schéma (SVG) ----
+.sch-svg {
+  flex: 1;
+  width: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+  background: $panel-2;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.sch-paper {
+  fill: #edf2fa;
+}
+
+.sch-frame {
+  stroke: #94a8c8;
+  stroke-width: 0.4;
+}
+
+.sch-grid-line {
+  stroke: #d9e2f0;
+  stroke-width: 0.12;
+}
+
+.sch-tb-box {
+  fill: #ffffff;
+  stroke: #94a8c8;
+  stroke-width: 0.3;
+
+  + text,
+  text {
+    fill: #33415c;
+    font-size: 3.2px;
+    font-family: $font-stack;
+  }
+}
+
+.sch-component {
+  cursor: pointer;
+
+  .sch-body {
+    fill: #ffffff;
+    stroke: #33415c;
+    stroke-width: 0.22;
+  }
+
+  .sch-pin {
+    fill: $copper;
+    stroke: #8a5a06;
+    stroke-width: 0.05;
+  }
+
+  .sch-ref {
+    fill: #0b1220;
+    font-size: 2.6px;
+    font-weight: 700;
+    font-family: $font-stack;
+  }
+
+  .sch-value {
+    fill: #4a5b7d;
+    font-size: 2.2px;
+    font-family: $font-stack;
+  }
+
+  &.selected .sch-body {
+    stroke: #0891b2;
+    stroke-width: 0.5;
+    fill: #e5f8fc;
+  }
+}
+
+// ---- Éditeur PCB (canvas) ----
+.pcb-canvas {
+  flex: 1;
+  width: 100%;
+  display: block;
+  cursor: grab;
+  touch-action: none;
+
+  &:active {
+    cursor: grabbing;
+  }
+}
+
+.layer-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.layer-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    accent-color: $accent;
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+  }
+}
+
+.net-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.net-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 7px;
+  border-radius: $radius-sm;
+  font-size: 13px;
+  cursor: pointer;
+  color: $text;
+
+  &:hover {
+    background: rgba(34, 211, 238, 0.08);
+  }
+
+  &.active {
+    background: rgba(34, 211, 238, 0.14);
+  }
+
+  .net-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .net-name {
+    flex: 1;
+    font-family: $mono-stack;
+    font-size: 12px;
+  }
+
+  .net-count {
+    color: $muted;
+    font-size: 11px;
+  }
+}
+
+.legend {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 12px;
+  color: $muted;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.legend-swatch {
+  width: 18px;
+  height: 8px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+// ---- Panneau violations DRC / ERC ----
+.erc-panel {
+  margin-top: 16px;
+  padding: 14px 16px;
+
+  .erc-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+
+    h3 {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .erc-summary {
+      color: $muted;
+      font-size: 12px;
+    }
+  }
+}
+
+.violation-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.violation-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 11px;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  background: $panel-2;
+  font-size: 12.5px;
+
+  .sev {
+    flex-shrink: 0;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+
+    &.sev-error {
+      color: $red;
+      background: rgba(248, 113, 113, 0.14);
+    }
+
+    &.sev-warning {
+      color: $warn;
+      background: rgba(251, 191, 36, 0.14);
+    }
+  }
+
+  strong {
+    font-family: $mono-stack;
+    font-size: 12px;
+  }
+
+  .violation-loc {
+    color: $muted;
+    font-size: 11.5px;
+    margin-top: 2px;
+    font-family: $mono-stack;
+  }
+}
+
+.pass-banner {
+  padding: 10px 14px;
+  border-radius: $radius-sm;
+  font-weight: 600;
+  font-size: 13px;
+
+  &.ok {
+    color: $green;
+    background: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.35);
+  }
+
+  &.fail {
+    color: $red;
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+  }
+}
+
+// ============================================================
+// 10. Console de routage IA
+// ============================================================
+.router-layout {
+  display: grid;
+  grid-template-columns: 300px 1fr;
+  gap: 16px;
+  align-items: start;
+
+  @include responsive(1000px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  padding: 8px;
+  background: $panel-2;
+}
+
+.check-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(34, 211, 238, 0.07);
+  }
+
+  input[type="checkbox"] {
+    accent-color: $accent;
+    width: 15px;
+    height: 15px;
+    cursor: pointer;
+  }
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 11px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+  border: 1px solid $border;
+  color: $muted;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+
+  &.chip-pending {
+    color: $muted;
+    border-color: rgba(140, 160, 192, 0.4);
+  }
+
+  &.chip-running {
+    color: $accent;
+    border-color: rgba(34, 211, 238, 0.45);
+    background: rgba(34, 211, 238, 0.1);
+  }
+
+  &.chip-done {
+    color: $green;
+    border-color: rgba(52, 211, 153, 0.45);
+    background: rgba(52, 211, 153, 0.1);
+  }
+
+  &.chip-failed,
+  &.chip-cancelled {
+    color: $red;
+    border-color: rgba(248, 113, 113, 0.45);
+    background: rgba(248, 113, 113, 0.1);
+  }
+}
+
+.progress-outer {
+  height: 14px;
+  border-radius: 999px;
+  background: $panel-2;
+  border: 1px solid $border;
+  overflow: hidden;
+
+  .progress-inner {
+    height: 100%;
+    background: linear-gradient(90deg, #0891b2, $accent);
+    border-radius: 999px;
+    transition: width 0.25s ease;
+  }
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: $muted;
+  font-size: 12px;
+  margin-top: 6px;
+  font-family: $mono-stack;
+}
+
+.progress-log {
+  background: #080e1b;
+  border: 1px solid $border;
+  border-radius: $radius-sm;
+  padding: 10px 12px;
+  max-height: 220px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  .log-line {
+    font-family: $mono-stack;
+    font-size: 12px;
+    color: #9fb3d8;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .log-line-error {
+    color: $red;
+  }
+}
+
+.results-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th,
+  td {
+    text-align: left;
+    padding: 8px 10px;
+    border-bottom: 1px solid $border;
+  }
+
+  th {
+    color: $muted;
+    font-size: 11.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  td {
+    font-family: $mono-stack;
+    font-size: 12.5px;
+  }
+
+  tbody tr:hover {
+    background: rgba(34, 211, 238, 0.05);
+  }
+}
+
+.final-banner {
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: $radius;
+  font-weight: 700;
+
+  &.ok {
+    color: $green;
+    background: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.4);
+  }
+
+  &.fail {
+    color: $red;
+    background: rgba(248, 113, 113, 0.1);
+    border: 1px solid rgba(248, 113, 113, 0.4);
+  }
+}
+
+.ws-chip {
+  font-size: 11.5px;
+  color: $muted;
+  font-family: $mono-stack;
+}
+
+.job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  color: $muted;
+  font-size: 12px;
+  margin-top: 8px;
+  font-family: $mono-stack;
+}
+
+// ============================================================
+// 11. Centre d'export
+// ============================================================
+.export-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.export-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .export-title {
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .export-desc {
+    color: $muted;
+    font-size: 13px;
+    flex: 1;
+  }
+
+  .export-actions {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+  }
+
+  .export-note {
+    font-size: 11.5px;
+    color: $muted;
+  }
+}
+
+.import-zone {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .import-controls {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  input[type="file"] {
+    color: $muted;
+    font-size: 13px;
+
+    &::file-selector-button {
+      background: #17233c;
+      color: $text;
+      border: 1px solid $border;
+      border-radius: $radius-sm;
+      padding: 7px 12px;
+      margin-right: 12px;
+      font-family: inherit;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+
+      &:hover {
+        border-color: #2f4470;
+      }
+    }
+  }
+}
+
+.import-result {
+  border-top: 1px dashed $border;
+  padding-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+
+  .import-stats {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .warn-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    color: $warn;
+    font-size: 12.5px;
+
+    li {
+      padding-left: 14px;
+      position: relative;
+
+      &::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 7px;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: $warn;
+      }
+    }
+  }
+}
+
+// ============================================================
+// 12. Visionneuse 3D
+// ============================================================
+.viewer-wrap {
+  overflow: hidden;
+  padding: 0;
+}
+
+.viewer-toolbar {
+  .viewer-hint {
+    margin-left: auto;
+    color: $muted;
+    font-size: 11.5px;
+  }
+}
+
+.viewer-mount {
+  width: 100%;
+  height: 560px;
+
+  canvas {
+    display: block;
+  }
+
+  @include responsive(760px) {
+    height: 400px;
+  }
+}
+
+.viewer-loading {
+  @include panel;
+  height: 560px;
+  @include flex-center;
+  color: $muted;
+}
+
+// ============================================================
+// 13. Notifications (toasts)
+// ============================================================
+.toast-stack {
+  position: fixed;
+  bottom: 18px;
+  right: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 200;
+}
+
+.toast {
+  min-width: 240px;
+  max-width: 360px;
+  padding: 11px 14px;
+  border-radius: $radius;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: $panel;
+  border: 1px solid $border;
+  box-shadow: $shadow-2;
+  animation: toast-in 0.18s ease;
+
+  &.toast-info {
+    border-left: 3px solid $accent;
+  }
+
+  &.toast-success {
+    border-left: 3px solid $green;
+  }
+
+  &.toast-error {
+    border-left: 3px solid $red;
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+// ============================================================
+// 14. Divers
+// ============================================================
+.hint-empty {
+  position: absolute;
+  inset: 0;
+  @include flex-center;
+  color: $muted;
+  font-size: 13px;
+  pointer-events: none;
+  text-align: center;
+  padding: 20px;
+}

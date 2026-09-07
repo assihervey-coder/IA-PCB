@@ -1,0 +1,1065 @@
+# ==============================================================
+# KidCAD-Pro-IA — spécification OpenAPI 3.0.3 de l'API REST
+# Source de vérité : docs/architecture/contracts.md §2 (REST) et §3 (WS).
+# Les DTO suivent shared/types/pcb.d.ts (JSON snake_case).
+# ==============================================================
+
+openapi: 3.0.3
+info:
+  title: KidCAD-Pro-IA API
+  description: |
+    API REST du backend Go de KidCAD-Pro-IA, application de CAO électronique :
+    gestion de projets, import de fichiers CAO (KiCad, Eagle, échange natif),
+    placement et routage assistés par intelligence artificielle, vérification
+    DRC/ERC et exports de fabrication (Gerber, BOM, STEP).
+
+    Conventions générales :
+      * Toutes les coordonnées et dimensions sont exprimées en **millimètres**,
+        origine en coin haut-gauche de la carte, indice de couche 0 = F.Cu.
+      * Les champs JSON sont en **snake_case** (contrat partagé `pcb.d.ts`).
+      * Les jobs asynchrones (routage, optimisation) renvoient `202 JobStarted`
+        et publient leur progression sur le WebSocket `/ws/v1/progress` (§3
+        des contrats) : messages `{"type":"progress",...}` serveur -> client,
+        `{"type":"subscribe","project_id":"…"}` et `{"type":"ping"}` client ->
+        serveur, `{"type":"pong"}` en retour. Ping applicatif toutes les 30 s.
+      * Le serveur démarre même si le moteur IA est injoignable : les routes
+        IA renvoient alors `502` avec le code d'erreur `ai_unreachable`.
+  version: 1.0.0
+servers:
+  - url: http://localhost:8080
+    description: Développement local
+tags:
+  - name: Projects
+    description: Cycle de vie des projets (CRUD, import)
+  - name: Layout
+    description: Consultation et édition du layout (board, composants, pistes, vias)
+  - name: IA
+    description: Placement et routage automatiques (jobs asynchrones, progression temps réel)
+  - name: Vérification
+    description: Contrôles DRC (règles de conception) et ERC (règles électriques)
+  - name: Export
+    description: Fichiers de fabrication (Gerber, BOM CSV, STEP)
+
+paths:
+  /healthz:
+    get:
+      tags: [Projects]
+      summary: Sondage de santé du service
+      description: |
+        État global du backend. Utilisable comme sonde Kubernetes
+        (liveness/readiness). `ai_engine` vaut `ok` ou `unreachable` selon la
+        joignabilité du moteur IA gRPC ; `database` vaut `postgres` ou `memory`
+        (adaptateur en mémoire quand `KIDCAD_DB_URL` est vide).
+      operationId: getHealth
+      responses:
+        '200':
+          description: Service opérationnel
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version, ai_engine, database]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                  version:
+                    type: string
+                    example: 0.1.0
+                  ai_engine:
+                    type: string
+                    enum: [ok, unreachable]
+                    example: ok
+                  database:
+                    type: string
+                    enum: [postgres, memory]
+                    example: postgres
+              example:
+                status: ok
+                version: 0.1.0
+                ai_engine: ok
+                database: postgres
+
+  /api/v1/projects:
+    get:
+      tags: [Projects]
+      summary: Liste des projets
+      description: Retourne la liste paginée des projets, du plus récent au plus ancien.
+      operationId: listProjects
+      parameters:
+        - name: limit
+          in: query
+          description: Nombre maximal de projets retournés (0 = illimité).
+          schema:
+            type: integer
+            minimum: 0
+            default: 20
+          example: 20
+        - name: offset
+          in: query
+          description: Index de départ de la pagination.
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          example: 0
+      responses:
+        '200':
+          description: Liste paginée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectList'
+    post:
+      tags: [Projects]
+      summary: Création d'un projet
+      description: |
+        Crée un projet vide avec le nombre de couches cuivre demandé
+        (défaut 2). Le nom est obligatoire et non vide.
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreate'
+            example:
+              name: Carte capteur 60x40
+              description: Prototype deux couches, connecteur J1 et microcontrôleur U1
+              layer_count: 2
+      responses:
+        '201':
+          description: Projet créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          description: Requête invalide (nom vide, nombre de couches hors bornes)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: invalid
+                  message: "projet : le nom ne doit pas être vide"
+
+  /api/v1/projects/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Projects]
+      summary: Détail d'un projet
+      description: Retourne les métadonnées du projet (le contenu design passe par /layout et /import).
+      operationId: getProject
+      responses:
+        '200':
+          description: Projet trouvé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Projects]
+      summary: Mise à jour des métadonnées
+      description: Renomme le projet et/ou modifie sa description. Les champs omis sont conservés.
+      operationId: updateProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  example: Carte capteur 60x40 rev B
+                description:
+                  type: string
+                  example: Deuxième itération, ajout d'un condensateur de découplage
+            example:
+              name: Carte capteur 60x40 rev B
+              description: Deuxième itération
+      responses:
+        '200':
+          description: Projet mis à jour
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          description: Requête invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    delete:
+      tags: [Projects]
+      summary: Suppression d'un projet
+      description: 'Supprime le projet et son contenu. Idempotent : supprimer un projet inconnu renvoie 204.'
+      operationId: deleteProject
+      responses:
+        '204':
+          description: Projet supprimé (ou déjà absent)
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/import:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Projects]
+      summary: Import d'un fichier CAO dans le projet
+      description: |
+        Importe un fichier multipart (champ `file`) et remplace le schéma, le
+        board et les contraintes du projet. Formats reconnus (détection par
+        extension et contenu) : KiCad `.kicad_pcb` (subset s-expression),
+        Eagle `.brd`/`.sch` (XML), netlist KiCad `.net`, netlist Protel/Altium
+        texte, échange natif `.kidcad.json`. Altium `.SchDoc`/`.PcbDoc` et
+        Cadence `.brd` binaires sont détectés mais renvoient une erreur claire
+        (non supportés à ce jour).
+      operationId: importFile
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: Fichier à importer (.kicad_pcb, .net, .brd, .sch, .kidcad.json)
+      responses:
+        '200':
+          description: Import réussi (avertissements éventuels dans warnings)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ImportResult'
+        '400':
+          description: Fichier illisible ou format non reconnu
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: invalid
+                  message: "import : format Altium détecté (.PcbDoc), non supporté à ce jour"
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/layout:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Layout]
+      summary: Layout complet du projet
+      description: Board, composants placés, nets, pistes et vias du projet.
+      operationId: getLayout
+      responses:
+        '200':
+          description: Layout courant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LayoutData'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    put:
+      tags: [Layout]
+      summary: Remplacement du layout
+      description: |
+        Remplace intégralement le layout (déplacements manuels de composants,
+        édition de pistes). Retourne le layout normalisé après enregistrement.
+      operationId: putLayout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LayoutData'
+      responses:
+        '200':
+          description: Layout enregistré
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LayoutData'
+        '400':
+          description: Layout invalide (dimensions, couches, références dupliquées)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/place:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [IA]
+      summary: Placement automatique des composants
+      description: |
+        Appel **synchrone** : le placement est calculé puis appliqué et
+        renvoyé. `strategy` = `rl` (modèle entraîné si checkpoint disponible)
+        ou `heuristic` (recuit simulé déterministe). Le moteur utilise le repli
+        heuristique automatiquement si aucun modèle RL n'est chargé.
+      operationId: startPlace
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [strategy]
+              properties:
+                strategy:
+                  type: string
+                  enum: [rl, heuristic]
+            example:
+              strategy: heuristic
+      responses:
+        '200':
+          description: Placement appliqué
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LayoutData'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Moteur IA injoignable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  code: ai_unreachable
+                  message: "moteur IA injoignable (ai-engine:50051)"
+
+  /api/v1/projects/{id}/route:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [IA]
+      summary: Lancement du routage automatique
+      description: |
+        Appel **asynchrone** : crée un job, retourne immédiatement `202
+        JobStarted`. La progression est publiée sur le WebSocket
+        `/ws/v1/progress` (un événement par net terminé) et consultable via
+        `GET /projects/{id}/jobs/{jobID}`. `nets` filtre les nets à router
+        (vide = tous).
+      operationId: startRoute
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RouteJobStart'
+            example:
+              strategy: astar
+              nets: []
+      responses:
+        '202':
+          description: Job de routage créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStarted'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Moteur IA injoignable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/optimize:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [IA]
+      summary: Lancement de l'optimisation post-routage
+      description: |
+        Appel **asynchrone** : rip-up & reroute des pires nets, réduction du
+        nombre de vias et de la longueur de cuivre. Corps vide `{}`.
+      operationId: startOptimize
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+            example: {}
+      responses:
+        '202':
+          description: Job d'optimisation créé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStarted'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Moteur IA injoignable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/jobs/{jobID}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/JobId'
+    get:
+      tags: [IA]
+      summary: État d'un job (routage ou optimisation)
+      description: Sondage de l'état d'avancement. Préférer le WebSocket pour le temps réel.
+      operationId: getJob
+      responses:
+        '200':
+          description: État courant du job
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JobStatus'
+        '404':
+          description: Projet ou job introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/drc:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Vérification]
+      summary: Design Rule Check
+      description: |
+        Vérifie les règles de conception sur le layout courant : clearances
+        piste/piste, piste/pad, piste/via, via/via, cuivre/bord, largeur de
+        piste, diamètre/perçage/anneau annulaire des vias. Codes de violation :
+        `DRC_CLEARANCE`, `DRC_TRACK_WIDTH`, `DRC_VIA_DIAMETER`, `DRC_DRILL`,
+        `DRC_ANNULAR`, `DRC_EDGE_CLEARANCE`.
+      operationId: runDRC
+      responses:
+        '200':
+          description: Rapport DRC (passed = false si au moins une violation de gravité error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DRCResult'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/erc:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [Vérification]
+      summary: Electrical Rule Check
+      description: |
+        Vérifie la cohérence électrique du schéma : références dupliquées,
+        nets à une seule broche, nets sans nom, empreinte manquante,
+        composant non connecté. Codes : `ERC_DUPLICATE_REF`,
+        `ERC_SINGLE_PIN_NET`, `ERC_EMPTY_NET_NAME`, `ERC_MISSING_FOOTPRINT`,
+        `ERC_UNCONNECTED_COMPONENT`.
+      operationId: runERC
+      responses:
+        '200':
+          description: Rapport ERC
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ERCResult'
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/export/gerber:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Export]
+      summary: Export Gerber (archive ZIP)
+      description: |
+        Archive ZIP des fichiers Gerber RS-274X (couches cuivre, masques,
+        sérigraphie, contour `Edge_Cuts` — suffixes `-F_Cu.gbr`, `-B_Cu.gbr`,
+        `-F_Mask.gbr`, `-Edge_Cuts.gbr`, etc.), unités mm, format 4.6.
+      operationId: exportGerber
+      responses:
+        '200':
+          description: Archive ZIP Gerber
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/export/bom:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Export]
+      summary: Export nomenclature (BOM CSV)
+      description: CSV point-virgule avec l'en-tête `Ref;Qty;Value;Footprint` (références groupées par valeur/empreinte).
+      operationId: exportBOM
+      responses:
+        '200':
+          description: Fichier CSV
+          content:
+            text/csv:
+              schema:
+                type: string
+              example: |
+                Ref;Qty;Value;Footprint
+                R1;1;10k;Resistor_SMD:R_0603_1608Metric
+                C1;1;100n;Capacitor_SMD:C_0603_1608Metric
+                U1;1;STM32F103C8;Package_SO:SOIC-8_3.9x4.9mm_P1.27mm
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/export/step:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Export]
+      summary: Export 3D STEP
+      description: 'Modèle AP214 simplifié : plaque + composants modélisés en boîtes (BREP valide), prêt pour un outil CAO mécanique.'
+      operationId: exportSTEP
+      responses:
+        '200':
+          description: Fichier STEP
+          content:
+            application/step:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Projet introuvable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  parameters:
+    ProjectId:
+      name: id
+      in: path
+      required: true
+      description: Identifiant unique du projet (UUID).
+      schema:
+        type: string
+        format: uuid
+      example: 7d1e5c2a-9b3f-4c11-a6d8-2f0e8b91c4d7
+    JobId:
+      name: jobID
+      in: path
+      required: true
+      description: Identifiant du job renvoyé par /route ou /optimize.
+      schema:
+        type: string
+      example: 3f9c2e64-1a52-4b7e-9c33-8d41f6a2b9e0
+
+  schemas:
+    Project:
+      type: object
+      description: Métadonnées d'un projet KidCAD.
+      required: [id, name, description, layer_count, status, created_at, updated_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: 7d1e5c2a-9b3f-4c11-a6d8-2f0e8b91c4d7
+        name:
+          type: string
+          example: Carte capteur 60x40
+        description:
+          type: string
+          example: Prototype deux couches, connecteur J1 et microcontrôleur U1
+        layer_count:
+          type: integer
+          minimum: 1
+          maximum: 34
+          example: 2
+        status:
+          type: string
+          enum: [active, archived]
+          example: active
+        created_at:
+          type: string
+          format: date-time
+          example: '2025-01-15T08:30:00Z'
+        updated_at:
+          type: string
+          format: date-time
+          example: '2025-01-15T10:12:45Z'
+
+    ProjectCreate:
+      type: object
+      description: Paramètres de création d'un projet.
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          example: Carte capteur 60x40
+        description:
+          type: string
+          example: Prototype deux couches, connecteur J1 et microcontrôleur U1
+        layer_count:
+          type: integer
+          minimum: 1
+          maximum: 34
+          default: 2
+          example: 2
+
+    ProjectList:
+      type: object
+      description: Réponse paginée de GET /projects.
+      required: [projects, total]
+      properties:
+        projects:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+        total:
+          type: integer
+          description: Nombre total de projets (toutes pages).
+          example: 1
+      example:
+        projects:
+          - id: 7d1e5c2a-9b3f-4c11-a6d8-2f0e8b91c4d7
+            name: Carte capteur 60x40
+            description: Prototype deux couches
+            layer_count: 2
+            status: active
+            created_at: '2025-01-15T08:30:00Z'
+            updated_at: '2025-01-15T10:12:45Z'
+        total: 1
+
+    LayoutData:
+      type: object
+      description: |
+        Sérialisation JSON complète du layout d'un projet (contrat partagé
+        `pcb.d.ts`). Toutes les coordonnées sont en millimètres, origine en
+        coin haut-gauche, couche 0 = F.Cu.
+      required: [board, components, nets, tracks, vias]
+      properties:
+        board:
+          type: object
+          required: [width_mm, height_mm, layer_count, layer_names]
+          properties:
+            width_mm:
+              type: number
+              example: 60
+            height_mm:
+              type: number
+              example: 40
+            layer_count:
+              type: integer
+              example: 2
+            layer_names:
+              type: array
+              items:
+                type: string
+              example: [F.Cu, B.Cu]
+        components:
+          type: array
+          items:
+            type: object
+            required: [ref, footprint, x, y, rotation, fixed]
+            properties:
+              ref:
+                type: string
+                example: U1
+              footprint:
+                type: string
+                example: SOIC-8_3.9x4.9mm_P1.27mm
+              x:
+                type: number
+                example: 30.0
+              y:
+                type: number
+                example: 20.0
+              rotation:
+                type: number
+                description: Rotation en degrés.
+                example: 0
+              fixed:
+                type: boolean
+                description: Vrai si le composant ne doit pas être déplacé par l'IA.
+                example: false
+        nets:
+          type: array
+          items:
+            type: object
+            required: [name, net_class, pad_count]
+            properties:
+              name:
+                type: string
+                example: GND
+              net_class:
+                type: string
+                example: default
+              pad_count:
+                type: integer
+                example: 6
+        tracks:
+          type: array
+          description: Polylignes de cuivre, une entrée par piste continue d'une même couche.
+          items:
+            type: object
+            required: [net, layer, width, points]
+            properties:
+              net:
+                type: string
+                example: VCC
+              layer:
+                type: integer
+                example: 0
+              width:
+                type: number
+                description: Largeur de piste en mm.
+                example: 0.25
+              points:
+                type: array
+                minItems: 2
+                items:
+                  type: object
+                  properties:
+                    x:
+                      type: number
+                      example: 12.0
+                    y:
+                      type: number
+                      example: 10.5
+        vias:
+          type: array
+          items:
+            type: object
+            required: [net, x, y, from_layer, to_layer, diameter, drill]
+            properties:
+              net:
+                type: string
+                example: VCC
+              x:
+                type: number
+                example: 24.5
+              y:
+                type: number
+                example: 10.5
+              from_layer:
+                type: integer
+                example: 0
+              to_layer:
+                type: integer
+                example: 1
+              diameter:
+                type: number
+                example: 0.6
+              drill:
+                type: number
+                example: 0.3
+
+    DRCViolation:
+      type: object
+      description: Violation d'une règle de conception, localisée sur la carte.
+      required: [code, severity, message, x, y, layer, net]
+      properties:
+        code:
+          type: string
+          enum:
+            - DRC_CLEARANCE
+            - DRC_TRACK_WIDTH
+            - DRC_VIA_DIAMETER
+            - DRC_DRILL
+            - DRC_ANNULAR
+            - DRC_EDGE_CLEARANCE
+          example: DRC_CLEARANCE
+        severity:
+          type: string
+          enum: [error, warning]
+          example: error
+        message:
+          type: string
+          example: "Clearance 0,175 mm < 0,45 mm requis entre les nets VCC et GND"
+        x:
+          type: number
+          example: 18.25
+        y:
+          type: number
+          example: 10.3
+        layer:
+          type: integer
+          example: 0
+        net:
+          type: string
+          example: VCC
+
+    DRCResult:
+      type: object
+      description: Rapport DRC complet.
+      required: [passed, checked_rules, violations, duration_ms]
+      properties:
+        passed:
+          type: boolean
+          example: false
+        checked_rules:
+          type: integer
+          example: 6
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/DRCViolation'
+        duration_ms:
+          type: integer
+          example: 14
+
+    ERCViolation:
+      type: object
+      description: Anomalie électrique détectée sur le schéma.
+      required: [code, severity, message, component_ref]
+      properties:
+        code:
+          type: string
+          enum:
+            - ERC_DUPLICATE_REF
+            - ERC_SINGLE_PIN_NET
+            - ERC_EMPTY_NET_NAME
+            - ERC_MISSING_FOOTPRINT
+            - ERC_UNCONNECTED_COMPONENT
+          example: ERC_SINGLE_PIN_NET
+        severity:
+          type: string
+          enum: [error, warning]
+          example: warning
+        message:
+          type: string
+          example: "le net \"AUX\" n'est relié qu'à une seule broche"
+        component_ref:
+          type: string
+          example: R1
+
+    ERCResult:
+      type: object
+      description: Rapport ERC complet.
+      required: [passed, violations]
+      properties:
+        passed:
+          type: boolean
+          example: true
+        violations:
+          type: array
+          items:
+            $ref: '#/components/schemas/ERCViolation'
+
+    RouteJobStart:
+      type: object
+      description: Paramètres de lancement d'un routage automatique.
+      properties:
+        strategy:
+          type: string
+          enum: [rl, astar]
+          description: |
+            `rl` : modèle de renforcement si checkpoint disponible, sinon repli
+            A* automatique. `astar` : A* multi-couches déterministe (défaut).
+          default: astar
+          example: astar
+        nets:
+          type: array
+          description: Liste des nets à router (vide = tous les nets du schéma).
+          items:
+            type: string
+          example: []
+
+    JobStarted:
+      type: object
+      description: Accusé de création d'un job asynchrone (HTTP 202).
+      required: [job_id, project_id]
+      properties:
+        job_id:
+          type: string
+          example: 3f9c2e64-1a52-4b7e-9c33-8d41f6a2b9e0
+        project_id:
+          type: string
+          example: 7d1e5c2a-9b3f-4c11-a6d8-2f0e8b91c4d7
+
+    JobStatus:
+      type: object
+      description: État d'avancement d'un job. Consultable par sondage ou via le WebSocket.
+      required: [job_id, project_id, kind, state, percent, current_net, message, error, nets_done, nets_total, started_at, finished_at]
+      properties:
+        job_id:
+          type: string
+          example: 3f9c2e64-1a52-4b7e-9c33-8d41f6a2b9e0
+        project_id:
+          type: string
+          example: 7d1e5c2a-9b3f-4c11-a6d8-2f0e8b91c4d7
+        kind:
+          type: string
+          enum: [route, optimize, place]
+          example: route
+        state:
+          type: string
+          enum: [pending, running, done, failed, cancelled]
+          example: running
+        percent:
+          type: number
+          description: Avancement en pourcentage (0..100).
+          example: 42.0
+        current_net:
+          type: string
+          example: GND
+        message:
+          type: string
+          example: routage du net GND en cours
+        error:
+          type: string
+          example: ''
+        nets_done:
+          type: integer
+          example: 3
+        nets_total:
+          type: integer
+          example: 26
+        started_at:
+          type: string
+          format: date-time
+          example: '2025-01-15T10:13:00Z'
+        finished_at:
+          type: string
+          format: date-time
+          nullable: true
+          example: null
+
+    ImportResult:
+      type: object
+      description: Bilan d'un import de fichier CAO.
+      required: [format, components, nets, tracks, vias, warnings]
+      properties:
+        format:
+          type: string
+          description: Format détecté.
+          enum: [kicad, eagle, interchange, kicad-netlist, protel-netlist]
+          example: kicad
+        components:
+          type: integer
+          description: Nombre de composants importés.
+          example: 4
+        nets:
+          type: integer
+          example: 4
+        tracks:
+          type: integer
+          example: 3
+        vias:
+          type: integer
+          example: 1
+        warnings:
+          type: array
+          items:
+            type: string
+          example: ["couche In1.Cu absente du fichier source, 2 couches assumées"]
+
+    ErrorResponse:
+      type: object
+      description: Enveloppe d'erreur uniforme de l'API.
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [not_found, invalid, conflict, ai_unreachable, internal]
+              example: not_found
+            message:
+              type: string
+              example: "projet : introuvable"
+      example:
+        error:
+          code: not_found
+          message: "projet : introuvable"
+
+# ==============================================================
+# WebSocket /ws/v1/progress (hors OpenAPI paths, voir contracts.md §3) :
+#
+#   URL        : ws://localhost:8080/ws/v1/progress?project_id=<id>
+#   Client     : {"type":"subscribe","project_id":"..."} ou {"type":"ping"}
+#   Serveur    : {"type":"progress","job_id":"...","project_id":"...",
+#                 "stage":"route","current_net":"GND","percent":42,
+#                 "message":"...","done":false,"error":""}
+#                {"type":"pong"}
+#   Filtrage   : par project_id (query OU message subscribe).
+#   Keepalive  : ping applicatif toutes les 30 s.
+# ==============================================================

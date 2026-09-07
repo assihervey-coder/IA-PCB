@@ -1,0 +1,172 @@
+/**
+ * Client REST de l'API KidCAD-Pro-IA (contrat docs/architecture/contracts.md §2).
+ * En dev, les appels passent par le rewrite Next `/api/v1/*` vers le backend Go.
+ */
+import axios from "axios";
+import type {
+  AIStrategy,
+  DRCResult,
+  ERCResult,
+  ImportResult,
+  JobStarted,
+  JobStatus,
+  LayoutData,
+  Project,
+  ProjectCreate,
+  ProjectPatch,
+  RouteJobStart,
+} from "./types";
+
+const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
+const TIMEOUT_MS = 10000;
+
+const http = axios.create({
+  baseURL,
+  timeout: TIMEOUT_MS,
+});
+
+export interface ProjectListResponse {
+  projects: Project[];
+  total: number;
+}
+
+export interface ExportDownload {
+  blob: Blob;
+  /** Nom de fichier extrait de Content-Disposition, sinon null. */
+  filename: string | null;
+}
+
+function filenameFromDisposition(value: unknown): string | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(value);
+  if (utf8?.[1]) {
+    try {
+      return decodeURIComponent(utf8[1]);
+    } catch {
+      // nom mal encodé : on retombe sur le motif simple
+    }
+  }
+  const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(value);
+  return plain?.[1] ?? null;
+}
+
+async function requestBlob(path: string): Promise<ExportDownload> {
+  const res = await http.get<Blob>(path, { responseType: "blob" });
+  return { blob: res.data, filename: filenameFromDisposition(res.headers?.["content-disposition"]) };
+}
+
+function id(projectId: string): string {
+  return encodeURIComponent(projectId);
+}
+
+export const api = {
+  /** Vérifie que le backend répond (utilisé par l'indicateur d'état). */
+  async pingBackend(): Promise<boolean> {
+    try {
+      await http.get("/projects", { params: { limit: 1 }, timeout: 4000 });
+      return true;
+    } catch (err) {
+      // Une réponse HTTP (même 4xx) prouve que le serveur est joignable.
+      return axios.isAxiosError(err) && err.response !== undefined;
+    }
+  },
+
+  async listProjects(limit = 50, offset = 0): Promise<ProjectListResponse> {
+    const res = await http.get<ProjectListResponse>("/projects", { params: { limit, offset } });
+    return res.data;
+  },
+
+  async createProject(payload: ProjectCreate): Promise<Project> {
+    const res = await http.post<Project>("/projects", payload);
+    return res.data;
+  },
+
+  async getProject(projectId: string): Promise<Project> {
+    const res = await http.get<Project>(`/projects/${id(projectId)}`);
+    return res.data;
+  },
+
+  async updateProject(projectId: string, patch: ProjectPatch): Promise<Project> {
+    const res = await http.put<Project>(`/projects/${id(projectId)}`, patch);
+    return res.data;
+  },
+
+  async deleteProject(projectId: string): Promise<void> {
+    await http.delete(`/projects/${id(projectId)}`);
+  },
+
+  async importFile(projectId: string, file: File): Promise<ImportResult> {
+    const form = new FormData();
+    form.append("file", file, file.name);
+    const res = await http.post<ImportResult>(`/projects/${id(projectId)}/import`, form, {
+      headers: { "Content-Type": "multipart/form-data" },
+    });
+    return res.data;
+  },
+
+  async getLayout(projectId: string): Promise<LayoutData> {
+    const res = await http.get<LayoutData>(`/projects/${id(projectId)}/layout`);
+    return res.data;
+  },
+
+  async putLayout(projectId: string, layout: LayoutData): Promise<LayoutData> {
+    const res = await http.put<LayoutData>(`/projects/${id(projectId)}/layout`, layout);
+    return res.data;
+  },
+
+  /** Placement IA — synchrone, renvoie le layout mis à jour. */
+  async startPlace(projectId: string, strategy: AIStrategy): Promise<LayoutData> {
+    const res = await http.post<LayoutData>(`/projects/${id(projectId)}/place`, { strategy });
+    return res.data;
+  },
+
+  /** Routage IA — asynchrone, renvoie un job à suivre (REST + WebSocket). */
+  async startRoute(projectId: string, payload: RouteJobStart): Promise<JobStarted> {
+    const res = await http.post<JobStarted>(`/projects/${id(projectId)}/route`, payload);
+    return res.data;
+  },
+
+  async startOptimize(projectId: string): Promise<JobStarted> {
+    const res = await http.post<JobStarted>(`/projects/${id(projectId)}/optimize`, {});
+    return res.data;
+  },
+
+  async getJob(projectId: string, jobId: string): Promise<JobStatus> {
+    const res = await http.get<JobStatus>(`/projects/${id(projectId)}/jobs/${encodeURIComponent(jobId)}`);
+    return res.data;
+  },
+
+  async runDRC(projectId: string): Promise<DRCResult> {
+    const res = await http.post<DRCResult>(`/projects/${id(projectId)}/drc`);
+    return res.data;
+  },
+
+  async runERC(projectId: string): Promise<ERCResult> {
+    const res = await http.post<ERCResult>(`/projects/${id(projectId)}/erc`);
+    return res.data;
+  },
+
+  async exportGerber(projectId: string): Promise<ExportDownload> {
+    return requestBlob(`/projects/${id(projectId)}/export/gerber`);
+  },
+
+  async exportBOM(projectId: string): Promise<ExportDownload> {
+    return requestBlob(`/projects/${id(projectId)}/export/bom`);
+  },
+
+  async exportSTEP(projectId: string): Promise<ExportDownload> {
+    return requestBlob(`/projects/${id(projectId)}/export/step`);
+  },
+};
+
+/**
+ * Détermine si l'erreur correspond à un backend injoignable
+ * (erreur réseau, ECONNREFUSED, timeout ou erreur serveur 5xx).
+ */
+export function isBackendDown(err: unknown): boolean {
+  if (axios.isAxiosError(err)) {
+    if (!err.response) return true; // pas de réponse : réseau / DNS / timeout
+    return err.response.status >= 500 || err.code === "ECONNREFUSED";
+  }
+  return false;
+}

@@ -1,0 +1,51 @@
+{
+  "board": {
+    "width_mm": 60,
+    "height_mm": 40,
+    "layer_count": 2,
+    "layer_names": ["F.Cu", "B.Cu"]
+  },
+  "components": [
+    { "ref": "U1", "footprint": "SOIC-8", "x": 30, "y": 18, "rotation": 0, "fixed": false },
+    { "ref": "R1", "footprint": "R_0603", "x": 12, "y": 10, "rotation": 90, "fixed": false },
+    { "ref": "R2", "footprint": "R_0603", "x": 12, "y": 18, "rotation": 90, "fixed": false },
+    { "ref": "R3", "footprint": "R_0603", "x": 47, "y": 30, "rotation": 0, "fixed": false },
+    { "ref": "C1", "footprint": "C_0805", "x": 20, "y": 10, "rotation": 0, "fixed": false },
+    { "ref": "J1", "footprint": "HDR-2x1", "x": 54, "y": 13, "rotation": 90, "fixed": true },
+    { "ref": "D1", "footprint": "LED_0805", "x": 47, "y": 12, "rotation": 0, "fixed": false },
+    { "ref": "Q1", "footprint": "SOT-23", "x": 38, "y": 30, "rotation": 0, "fixed": false }
+  ],
+  "nets": [
+    { "name": "VCC", "net_class": "power", "pad_count": 4 },
+    { "name": "GND", "net_class": "power", "pad_count": 4 },
+    { "name": "SIG_A", "net_class": "default", "pad_count": 2 },
+    { "name": "SIG_B", "net_class": "default", "pad_count": 2 },
+    { "name": "CLK", "net_class": "default", "pad_count": 2 },
+    { "name": "OUT1", "net_class": "default", "pad_count": 2 },
+    { "name": "OUT2", "net_class": "default", "pad_count": 2 },
+    { "name": "RESET", "net_class": "default", "pad_count": 2 },
+    { "name": "LED_A", "net_class": "default", "pad_count": 2 },
+    { "name": "IN1", "net_class": "default", "pad_count": 1 }
+  ],
+  "tracks": [
+    { "net": "VCC", "layer": 0, "width": 0.5, "points": [{ "x": 54, "y": 12 }, { "x": 44, "y": 12 }, { "x": 36, "y": 14 }] },
+    { "net": "VCC", "layer": 0, "width": 0.4, "points": [{ "x": 36, "y": 14 }, { "x": 20, "y": 14 }, { "x": 20, "y": 10.5 }] },
+    { "net": "VCC", "layer": 0, "width": 0.4, "points": [{ "x": 33, "y": 15.6 }, { "x": 33, "y": 14 }] },
+    { "net": "SIG_A", "layer": 0, "width": 0.25, "points": [{ "x": 28, "y": 20 }, { "x": 12, "y": 20 }, { "x": 12, "y": 11 }] },
+    { "net": "SIG_B", "layer": 0, "width": 0.25, "points": [{ "x": 32, "y": 19 }, { "x": 32, "y": 8 }, { "x": 13, "y": 8 }, { "x": 13, "y": 9.2 }] },
+    { "net": "CLK", "layer": 0, "width": 0.25, "points": [{ "x": 33, "y": 20 }, { "x": 33, "y": 24 }, { "x": 37, "y": 27 }] },
+    { "net": "OUT1", "layer": 0, "width": 0.3, "points": [{ "x": 35, "y": 19 }, { "x": 46, "y": 19 }, { "x": 46, "y": 28 }, { "x": 40, "y": 30 }] },
+    { "net": "OUT2", "layer": 0, "width": 0.3, "points": [{ "x": 33, "y": 17 }, { "x": 50, "y": 17 }, { "x": 50, "y": 29 }, { "x": 48, "y": 29 }] },
+    { "net": "LED_A", "layer": 0, "width": 0.25, "points": [{ "x": 48, "y": 30 }, { "x": 52, "y": 30 }, { "x": 52, "y": 13 }, { "x": 48, "y": 13 }] },
+    { "net": "GND", "layer": 1, "width": 0.5, "points": [{ "x": 54, "y": 14 }, { "x": 54, "y": 26 }, { "x": 50, "y": 26 }, { "x": 20, "y": 26 }, { "x": 20, "y": 11 }] },
+    { "net": "GND", "layer": 1, "width": 0.4, "points": [{ "x": 27.4, "y": 19.5 }, { "x": 27.4, "y": 26 }] },
+    { "net": "GND", "layer": 1, "width": 0.4, "points": [{ "x": 38.8, "y": 31 }, { "x": 38.8, "y": 26 }] },
+    { "net": "RESET", "layer": 1, "width": 0.25, "points": [{ "x": 29, "y": 17 }, { "x": 52, "y": 17 }, { "x": 52, "y": 34 }, { "x": 12, "y": 34 }, { "x": 12, "y": 19 }] },
+    { "net": "IN1", "layer": 1, "width": 0.15, "points": [{ "x": 47, "y": 12 }, { "x": 47, "y": 6 }, { "x": 9, "y": 6 }, { "x": 9, "y": 10 }, { "x": 12, "y": 10 }] }
+  ],
+  "vias": [
+    { "net": "GND", "x": 27.4, "y": 19.5, "from_layer": 0, "to_layer": 1, "diameter": 0.6, "drill": 0.3 },
+    { "net": "GND", "x": 38.8, "y": 31, "from_layer": 0, "to_layer": 1, "diameter": 0.6, "drill": 0.3 },
+    { "net": "RESET", "x": 29, "y": 17, "from_layer": 0, "to_layer": 1, "diameter": 0.6, "drill": 0.3 }
+  ]
+}

@@ -1,0 +1,711 @@
+     1→// Package verificationapp contains the design-rule (DRC) and electrical-rule
+     2→// (ERC) checkers. The DRC combines a spatial hash (≈2 mm cells) with the
+     3→// pure geometry primitives of internal/pkg/geometry. The package name
+     4→// differs from the folder name to avoid collisions with the domain package.
+     5→package verificationapp
+     6→
+     7→import (
+     8→        "context"
+     9→        "errors"
+    10→        "fmt"
+    11→        "math"
+    12→        "time"
+    13→
+    14→        apperrors "github.com/kidcad/kidcad-pro-ia/backend/internal/application"
+    15→        domainconstraints "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/constraints"
+    16→        domainlayout "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/layout"
+    17→        domainproject "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/project"
+    18→        domainschematic "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/schematic"
+    19→        "github.com/kidcad/kidcad-pro-ia/backend/internal/pkg/geometry"
+    20→)
+    21→
+    22→// DRC violation codes.
+    23→const (
+    24→        CodeDRCClearance     = "DRC_CLEARANCE"
+    25→        CodeDRCTrackWidth    = "DRC_TRACK_WIDTH"
+    26→        CodeDRCViaDiameter   = "DRC_VIA_DIAMETER"
+    27→        CodeDRCDrill         = "DRC_DRILL"
+    28→        CodeDRCAnnular       = "DRC_ANNULAR"
+    29→        CodeDRCEdgeClearance = "DRC_EDGE_CLEARANCE"
+    30→)
+    31→
+    32→// maxViolations caps the report so a pathological board cannot exhaust
+    33→// memory.
+    34→const maxViolations = 1000
+    35→
+    36→// drcCellMM is the spatial hash cell size.
+    37→const drcCellMM = 2.0
+    38→
+    39→// DRCViolation is one design-rule violation with its location.
+    40→type DRCViolation struct {
+    41→        Code     string  `json:"code"`
+    42→        Severity string  `json:"severity"`
+    43→        Message  string  `json:"message"`
+    44→        X        float64 `json:"x"`
+    45→        Y        float64 `json:"y"`
+    46→        Layer    int     `json:"layer"`
+    47→        Net      string  `json:"net"`
+    48→}
+    49→
+    50→// DRCResult is the outcome of a design-rule check.
+    51→type DRCResult struct {
+    52→        Passed       bool           `json:"passed"`
+    53→        CheckedRules int            `json:"checked_rules"`
+    54→        Violations   []DRCViolation `json:"violations"`
+    55→        DurationMS   int64          `json:"duration_ms"`
+    56→}
+    57→
+    58→// DRCChecker runs the design-rule check of a project board.
+    59→type DRCChecker struct {
+    60→        projects domainproject.Repository
+    61→}
+    62→
+    63→// NewDRCChecker builds the DRC use case.
+    64→func NewDRCChecker(projects domainproject.Repository) *DRCChecker {
+    65→        return &DRCChecker{projects: projects}
+    66→}
+    67→
+    68→// Run executes every enabled rule against the board and returns the report.
+    69→func (c *DRCChecker) Run(ctx context.Context, projectID string) (*DRCResult, error) {
+    70→        start := time.Now()
+    71→
+    72→        p, err := c.projects.FindByID(ctx, projectID)
+    73→        if err != nil {
+    74→                if errors.Is(err, apperrors.ErrNotFound) {
+    75→                        return nil, fmt.Errorf("drc : projet %q introuvable : %w", projectID, apperrors.ErrNotFound)
+    76→                }
+    77→                return nil, fmt.Errorf("drc : chargement du projet : %w", err)
+    78→        }
+    79→        board := p.Board()
+    80→        if board == nil {
+    81→                return nil, fmt.Errorf("drc : le projet %q n'a pas de carte (importez d'abord un design)", projectID)
+    82→        }
+    83→        cs := p.Constraints()
+    84→        if cs == nil {
+    85→                cs = domainconstraints.NewDefault()
+    86→        }
+    87→
+    88→        run := &drcRun{
+    89→                board:      board,
+    90→                cs:         cs,
+    91→                netClasses: netClassMap(p.Schematic()),
+    92→                maxClearMM: defaultMaxClearance(cs),
+    93→                violations: []DRCViolation{},
+    94→        }
+    95→
+    96→        run.checkTrackWidths()
+    97→        run.checkVias()
+    98→        run.checkEdgeClearance()
+    99→        run.checkClearances()
+   100→
+   101→        res := &DRCResult{
+   102→                Passed:       len(run.violations) == 0,
+   103→                CheckedRules: run.checkedRules(),
+   104→                Violations:   run.violations,
+   105→                DurationMS:   time.Since(start).Milliseconds(),
+   106→        }
+   107→        return res, nil
+   108→}
+   109→
+   110→// --------------------------------------------------------------
+   111→// Objets géométriques indexés
+   112→// --------------------------------------------------------------
+   113→
+   114→type drcKind int
+   115→
+   116→const (
+   117→        kindSegment drcKind = iota
+   118→        kindPad
+   119→        kindVia
+   120→)
+   121→
+   122→// drcObj is one copper object inserted into the spatial hash.
+   123→type drcObj struct {
+   124→        kind  drcKind
+   125→        seg   geometry.Segment
+   126→        layer int // segment : couche cuivre ; pad : couche (-1 traversant)
+   127→        viaLo int // via : borne basse
+   128→        viaHi int // via : borne haute
+   129→        net   string
+   130→        cls   string
+   131→        width float64 // segment : largeur
+   132→        r     float64 // pad/via : rayon effectif
+   133→        padW  float64
+   134→        padH  float64
+   135→}
+   136→
+   137→// bbox returns the axis-aligned bounding box of the object.
+   138→func (o *drcObj) bbox() geometry.AABB {
+   139→        switch o.kind {
+   140→        case kindSegment:
+   141→                return geometry.AABBFromPoints([]geometry.Point{o.seg.A, o.seg.B}).Expand(o.width / 2)
+   142→        default:
+   143→                return geometry.AABB{
+   144→                        MinX: o.seg.A.X - o.r, MinY: o.seg.A.Y - o.r,
+   145→                        MaxX: o.seg.A.X + o.r, MaxY: o.seg.A.Y + o.r,
+   146→                }
+   147→        }
+   148→}
+   149→
+   150→// spansLayer reports whether the object has copper on copper layer idx.
+   151→func (o *drcObj) spansLayer(idx int) bool {
+   152→        switch o.kind {
+   153→        case kindSegment:
+   154→                return o.layer == idx
+   155→        case kindPad:
+   156→                return o.layer < 0 || o.layer == idx
+   157→        default:
+   158→                lo, hi := o.viaLo, o.viaHi
+   159→                if lo > hi {
+   160→                        lo, hi = hi, lo
+   161→                }
+   162→                return idx >= lo && idx <= hi
+   163→        }
+   164→}
+   165→
+   166→// drcHash is a uniform spatial hash over ≈2 mm cells.
+   167→type drcHash struct {
+   168→        cell    float64
+   169→        margin  float64
+   170→        buckets map[[2]int][]int
+   171→        objs    []drcObj
+   172→}
+   173→
+   174→func newDRCHash(margin float64) *drcHash {
+   175→        return &drcHash{
+   176→                cell:    drcCellMM,
+   177→                margin:  margin,
+   178→                buckets: make(map[[2]int][]int),
+   179→        }
+   180→}
+   181→
+   182→func cellKey(x, y float64, cell float64) [2]int {
+   183→        return [2]int{int(math.Floor(x / cell)), int(math.Floor(y / cell))}
+   184→}
+   185→
+   186→// insert adds an object, indexing every cell covered by its bounding box.
+   187→func (h *drcHash) insert(o drcObj) {
+   188→        idx := len(h.objs)
+   189→        h.objs = append(h.objs, o)
+   190→        bb := o.bbox()
+   191→        for cx := int(math.Floor((bb.MinX - h.margin) / h.cell)); cx <= int(math.Floor((bb.MaxX+h.margin)/h.cell)); cx++ {
+   192→                for cy := int(math.Floor((bb.MinY - h.margin) / h.cell)); cy <= int(math.Floor((bb.MaxY+h.margin)/h.cell)); cy++ {
+   193→                        key := [2]int{cx, cy}
+   194→                        h.buckets[key] = append(h.buckets[key], idx)
+   195→                }
+   196→        }
+   197→}
+   198→
+   199→// forCandidates calls fn once for every distinct pair (i, j) with i < j
+   200→// whose objects are close enough to possibly violate a clearance rule.
+   201→func (h *drcHash) forCandidates(fn func(i, j int)) {
+   202→        seen := make(map[[2]int]struct{})
+   203→        for i := range h.objs {
+   204→                bb := h.objs[i].bbox()
+   205→                for cx := int(math.Floor((bb.MinX - h.margin) / h.cell)); cx <= int(math.Floor((bb.MaxX+h.margin)/h.cell)); cx++ {
+   206→                        for cy := int(math.Floor((bb.MinY - h.margin) / h.cell)); cy <= int(math.Floor((bb.MaxY+h.margin)/h.cell)); cy++ {
+   207→                                for _, j := range h.buckets[[2]int{cx, cy}] {
+   208→                                        if j <= i {
+   209→                                                continue
+   210→                                        }
+   211→                                        key := [2]int{i, j}
+   212→                                        if _, dup := seen[key]; dup {
+   213→                                                continue
+   214→                                        }
+   215→                                        seen[key] = struct{}{}
+   216→                                        fn(i, j)
+   217→                                }
+   218→                        }
+   219→                }
+   220→        }
+   221→}
+   222→
+   223→// --------------------------------------------------------------
+   224→// Contexte d'exécution du DRC
+   225→// --------------------------------------------------------------
+   226→
+   227→type drcRun struct {
+   228→        board      *domainlayout.Board
+   229→        cs         *domainconstraints.ConstraintSet
+   230→        netClasses map[string]domainschematic.NetClass
+   231→        maxClearMM float64
+   232→        violations []DRCViolation
+   233→}
+   234→
+   235→// class returns the net class of a net name (default when unknown).
+   236→func (r *drcRun) class(net string) string {
+   237→        if c, ok := r.netClasses[net]; ok && c != "" {
+   238→                return string(c)
+   239→        }
+   240→        return string(domainschematic.ClassDefault)
+   241→}
+   242→
+   243→// value resolves a rule value for a net class and layer.
+   244→func (r *drcRun) value(t domainconstraints.RuleType, cls string, layer int) (float64, bool) {
+   245→        return r.cs.Value(t, cls, layer)
+   246→}
+   247→
+   248→// severity returns the severity of the most specific matching rule.
+   249→func (r *drcRun) severity(t domainconstraints.RuleType, cls string, layer int) string {
+   250→        rules := r.cs.RulesFor(t, cls, layer)
+   251→        if len(rules) > 0 {
+   252→                return string(rules[0].Severity)
+   253→        }
+   254→        return string(domainconstraints.SeverityError)
+   255→}
+   256→
+   257→// checkedRules counts the distinct rule types enabled in the constraint set.
+   258→func (r *drcRun) checkedRules() int {
+   259→        types := []domainconstraints.RuleType{
+   260→                domainconstraints.RuleMinClearance,
+   261→                domainconstraints.RuleMinTrackWidth,
+   262→                domainconstraints.RuleMinViaDiameter,
+   263→                domainconstraints.RuleMinDrill,
+   264→                domainconstraints.RuleMinAnnularRing,
+   265→                domainconstraints.RuleEdgeClearance,
+   266→        }
+   267→        n := 0
+   268→        for _, t := range types {
+   269→                if _, ok := r.value(t, domainconstraints.AnyNetClass, domainconstraints.AnyLayer); ok {
+   270→                        n++
+   271→                }
+   272→        }
+   273→        return n
+   274→}
+   275→
+   276→// add records a violation, stopping early at the cap.
+   277→func (r *drcRun) add(v DRCViolation) bool {
+   278→        if len(r.violations) >= maxViolations {
+   279→                return false
+   280→        }
+   281→        r.violations = append(r.violations, v)
+   282→        return true
+   283→}
+   284→
+   285→// checkTrackWidths applies the min_track_width rule to every track.
+   286→func (r *drcRun) checkTrackWidths() {
+   287→        minW, ok := r.value(domainconstraints.RuleMinTrackWidth, domainconstraints.AnyNetClass, domainconstraints.AnyLayer)
+   288→        if !ok {
+   289→                return
+   290→        }
+   291→        for i := range r.board.Tracks {
+   292→                t := &r.board.Tracks[i]
+   293→                if len(t.Points) == 0 {
+   294→                        continue
+   295→                }
+   296→                cls := r.class(t.Net)
+   297→                if v, ok := r.value(domainconstraints.RuleMinTrackWidth, cls, t.Layer); ok {
+   298→                        minW = v
+   299→                }
+   300→                if t.Width+geometry.Epsilon < minW {
+   301→                        if !r.add(DRCViolation{
+   302→                                Code:     CodeDRCTrackWidth,
+   303→                                Severity: r.severity(domainconstraints.RuleMinTrackWidth, cls, t.Layer),
+   304→                                Message: fmt.Sprintf("piste du net %q trop fine : %.3f mm < %.3f mm",
+   305→                                        t.Net, t.Width, minW),
+   306→                                X: t.Points[0].X, Y: t.Points[0].Y,
+   307→                                Layer: t.Layer, Net: t.Net,
+   308→                        }) {
+   309→                                return
+   310→                        }
+   311→                }
+   312→        }
+   313→}
+   314→
+   315→// checkVias applies the via diameter / drill / annular ring rules.
+   316→func (r *drcRun) checkVias() {
+   317→        for i := range r.board.Vias {
+   318→                v := &r.board.Vias[i]
+   319→                cls := r.class(v.Net)
+   320→
+   321→                if minD, ok := r.value(domainconstraints.RuleMinViaDiameter, cls, v.FromLayer); ok &&
+   322→                        v.Diameter+geometry.Epsilon < minD {
+   323→                        if !r.add(DRCViolation{
+   324→                                Code:     CodeDRCViaDiameter,
+   325→                                Severity: r.severity(domainconstraints.RuleMinViaDiameter, cls, v.FromLayer),
+   326→                                Message: fmt.Sprintf("via du net %q trop petit : %.3f mm < %.3f mm",
+   327→                                        v.Net, v.Diameter, minD),
+   328→                                X: v.X, Y: v.Y, Layer: v.FromLayer, Net: v.Net,
+   329→                        }) {
+   330→                                return
+   331→                        }
+   332→                }
+   333→
+   334→                if minDrill, ok := r.value(domainconstraints.RuleMinDrill, cls, v.FromLayer); ok &&
+   335→                        v.Drill+geometry.Epsilon < minDrill {
+   336→                        if !r.add(DRCViolation{
+   337→                                Code:     CodeDRCDrill,
+   338→                                Severity: r.severity(domainconstraints.RuleMinDrill, cls, v.FromLayer),
+   339→                                Message: fmt.Sprintf("perçage du via du net %q trop petit : %.3f mm < %.3f mm",
+   340→                                        v.Net, v.Drill, minDrill),
+   341→                                X: v.X, Y: v.Y, Layer: v.FromLayer, Net: v.Net,
+   342→                        }) {
+   343→                                return
+   344→                        }
+   345→                }
+   346→
+   347→                if minRing, ok := r.value(domainconstraints.RuleMinAnnularRing, cls, v.FromLayer); ok &&
+   348→                        v.AnnularRing()+geometry.Epsilon < minRing {
+   349→                        if !r.add(DRCViolation{
+   350→                                Code:     CodeDRCAnnular,
+   351→                                Severity: r.severity(domainconstraints.RuleMinAnnularRing, cls, v.FromLayer),
+   352→                                Message: fmt.Sprintf("anneau annulaire du via du net %q trop fin : %.3f mm < %.3f mm",
+   353→                                        v.Net, v.AnnularRing(), minRing),
+   354→                                X: v.X, Y: v.Y, Layer: v.FromLayer, Net: v.Net,
+   355→                        }) {
+   356→                                return
+   357→                        }
+   358→                }
+   359→        }
+   360→}
+   361→
+   362→// checkEdgeClearance applies the edge_clearance rule to tracks and vias.
+   363→func (r *drcRun) checkEdgeClearance() {
+   364→        w, h := r.board.WidthMM, r.board.HeightMM
+   365→        edges := rectEdges(w, h)
+   366→
+   367→        baseEdge, ok := r.value(domainconstraints.RuleEdgeClearance, domainconstraints.AnyNetClass, domainconstraints.AnyLayer)
+   368→        if !ok {
+   369→                return
+   370→        }
+   371→
+   372→        for i := range r.board.Tracks {
+   373→                t := &r.board.Tracks[i]
+   374→                cls := r.class(t.Net)
+   375→                edge := baseEdge
+   376→                if v, ok := r.value(domainconstraints.RuleEdgeClearance, cls, t.Layer); ok {
+   377→                        edge = v
+   378→                }
+   379→                required := edge + t.Width/2
+   380→                for _, seg := range t.Segments() {
+   381→                        d, pt := segmentRectDistance(seg, edges)
+   382→                        if d+geometry.Epsilon < required {
+   383→                                if !r.add(DRCViolation{
+   384→                                        Code:     CodeDRCEdgeClearance,
+   385→                                        Severity: r.severity(domainconstraints.RuleEdgeClearance, cls, t.Layer),
+   386→                                        Message: fmt.Sprintf("piste du net %q trop proche du bord : %.3f mm < %.3f mm",
+   387→                                                t.Net, d, required),
+   388→                                        X: pt.X, Y: pt.Y, Layer: t.Layer, Net: t.Net,
+   389→                                }) {
+   390→                                        return
+   391→                                }
+   392→                        }
+   393→                }
+   394→        }
+   395→
+   396→        for i := range r.board.Vias {
+   397→                v := &r.board.Vias[i]
+   398→                cls := r.class(v.Net)
+   399→                edge := baseEdge
+   400→                if val, ok := r.value(domainconstraints.RuleEdgeClearance, cls, v.FromLayer); ok {
+   401→                        edge = val
+   402→                }
+   403→                required := edge + v.Diameter/2
+   404→                d, pt := pointRectBoundaryDistance(geometry.Point{X: v.X, Y: v.Y}, edges)
+   405→                if d+geometry.Epsilon < required {
+   406→                        if !r.add(DRCViolation{
+   407→                                Code:     CodeDRCEdgeClearance,
+   408→                                Severity: r.severity(domainconstraints.RuleEdgeClearance, cls, v.FromLayer),
+   409→                                Message: fmt.Sprintf("via du net %q trop proche du bord : %.3f mm < %.3f mm",
+   410→                                        v.Net, d, required),
+   411→                                X: pt.X, Y: pt.Y, Layer: v.FromLayer, Net: v.Net,
+   412→                        }) {
+   413→                                return
+   414→                        }
+   415→                }
+   416→        }
+   417→}
+   418→
+   419→// checkClearances runs the pairwise isolation checks through the spatial
+   420→// hash: piste↔piste, piste↔pad, piste↔via, via↔via.
+   421→func (r *drcRun) checkClearances() {
+   422→        hash := newDRCHash(r.hashMargin())
+   423→
+   424→        for i := range r.board.Tracks {
+   425→                t := &r.board.Tracks[i]
+   426→                cls := r.class(t.Net)
+   427→                for _, seg := range t.Segments() {
+   428→                        hash.insert(drcObj{
+   429→                                kind: kindSegment, seg: seg, layer: t.Layer,
+   430→                                net: t.Net, cls: cls, width: t.Width,
+   431→                        })
+   432→                }
+   433→        }
+   434→        last := r.board.LayerCount - 1
+   435→        for i := range r.board.Components {
+   436→                bc := &r.board.Components[i]
+   437→                for _, pad := range bc.Footprint.Pads {
+   438→                        if pad.Net == "" {
+   439→                                continue
+   440→                        }
+   441→                        pos := bc.PadAbsolutePosition(pad)
+   442→                        radius := math.Min(pad.Width, pad.Height) / 2
+   443→                        if radius <= 0 {
+   444→                                radius = math.Max(pad.Width, pad.Height) / 2
+   445→                        }
+   446→                        layer := pad.Layer
+   447→                        if layer >= r.board.LayerCount {
+   448→                                layer = last
+   449→                        }
+   450→                        hash.insert(drcObj{
+   451→                                kind:  kindPad,
+   452→                                seg:   geometry.Segment{A: pos, B: pos},
+   453→                                layer: layer, net: pad.Net,
+   454→                                cls: r.class(pad.Net), r: radius,
+   455→                                padW: pad.Width, padH: pad.Height,
+   456→                        })
+   457→                }
+   458→        }
+   459→        for i := range r.board.Vias {
+   460→                v := &r.board.Vias[i]
+   461→                hash.insert(drcObj{
+   462→                        kind:  kindVia,
+   463→                        seg:   geometry.Segment{A: geometry.Point{X: v.X, Y: v.Y}, B: geometry.Point{X: v.X, Y: v.Y}},
+   464→                        viaLo: v.FromLayer, viaHi: v.ToLayer,
+   465→                        net: v.Net, cls: r.class(v.Net), r: v.Diameter / 2,
+   466→                })
+   467→        }
+   468→
+   469→        hash.forCandidates(func(i, j int) {
+   470→                a, b := &hash.objs[i], &hash.objs[j]
+   471→                if a.net == b.net {
+   472→                        return
+   473→                }
+   474→                switch {
+   475→                case a.kind == kindSegment && b.kind == kindSegment:
+   476→                        if a.layer != b.layer {
+   477→                                return
+   478→                        }
+   479→                        r.checkSegSeg(a, b)
+   480→                case a.kind == kindSegment && b.kind == kindPad:
+   481→                        if !b.spansLayer(a.layer) {
+   482→                                return
+   483→                        }
+   484→                        r.checkSegPad(a, b)
+   485→                case a.kind == kindPad && b.kind == kindSegment:
+   486→                        if !a.spansLayer(b.layer) {
+   487→                                return
+   488→                        }
+   489→                        r.checkSegPad(b, a)
+   490→                case a.kind == kindSegment && b.kind == kindVia:
+   491→                        if !b.spansLayer(a.layer) {
+   492→                                return
+   493→                        }
+   494→                        r.checkSegVia(a, b)
+   495→                case a.kind == kindVia && b.kind == kindSegment:
+   496→                        if !a.spansLayer(b.layer) {
+   497→                                return
+   498→                        }
+   499→                        r.checkSegVia(b, a)
+   500→                case a.kind == kindVia && b.kind == kindVia:
+   501→                        if !viaLayersOverlap(a, b) {
+   502→                                return
+   503→                        }
+   504→                        r.checkViaVia(a, b)
+   505→                default:
+   506→                        // pad↔pad : hors périmètre contractuel (§4), volontairement ignoré.
+   507→                }
+   508→        })
+   509→}
+   510→
+   511→// hashMargin computes the lookup margin guaranteeing that no violating pair
+   512→// is missed: max clearance + largest half-width + largest radius.
+   513→func (r *drcRun) hashMargin() float64 {
+   514→        margin := r.maxClearMM
+   515→        for i := range r.board.Tracks {
+   516→                margin = math.Max(margin, r.board.Tracks[i].Width/2)
+   517→        }
+   518→        for i := range r.board.Vias {
+   519→                margin = math.Max(margin, r.board.Vias[i].Diameter/2)
+   520→        }
+   521→        for i := range r.board.Components {
+   522→                for _, pad := range r.board.Components[i].Footprint.Pads {
+   523→                        margin = math.Max(margin, math.Max(pad.Width, pad.Height)/2)
+   524→                }
+   525→        }
+   526→        return margin + 0.5
+   527→}
+   528→
+   529→func (r *drcRun) clearanceFor(a, b *drcObj, layer int) (float64, string) {
+   530→        ca, oka := r.value(domainconstraints.RuleMinClearance, a.cls, layer)
+   531→        cb, okb := r.value(domainconstraints.RuleMinClearance, b.cls, layer)
+   532→        best := r.maxClearMM
+   533→        sev := string(domainconstraints.SeverityError)
+   534→        if oka {
+   535→                best = ca
+   536→                sev = r.severity(domainconstraints.RuleMinClearance, a.cls, layer)
+   537→        }
+   538→        if okb && cb > best {
+   539→                best = cb
+   540→                sev = r.severity(domainconstraints.RuleMinClearance, b.cls, layer)
+   541→        }
+   542→        return best, sev
+   543→}
+   544→
+   545→func (r *drcRun) checkSegSeg(a, b *drcObj) {
+   546→        clearance, sev := r.clearanceFor(a, b, a.layer)
+   547→        required := clearance + a.width/2 + b.width/2
+   548→        d, pt := segmentSegmentDistance(a.seg, b.seg)
+   549→        if d+geometry.Epsilon < required {
+   550→                r.add(DRCViolation{
+   551→                        Code: CodeDRCClearance, Severity: sev,
+   552→                        Message: fmt.Sprintf("isolation insuffisante entre %q et %q : %.3f mm < %.3f mm",
+   553→                                a.net, b.net, d, required),
+   554→                        X: pt.X, Y: pt.Y, Layer: a.layer, Net: a.net,
+   555→                })
+   556→        }
+   557→}
+   558→
+   559→func (r *drcRun) checkSegPad(seg, pad *drcObj) {
+   560→        clearance, sev := r.clearanceFor(seg, pad, seg.layer)
+   561→        required := clearance + seg.width/2 + pad.r
+   562→        d, pt := closestPointOnSegment(pad.seg.A, seg.seg)
+   563→        if d+geometry.Epsilon < required {
+   564→                r.add(DRCViolation{
+   565→                        Code: CodeDRCClearance, Severity: sev,
+   566→                        Message: fmt.Sprintf("isolation insuffisante entre la piste %q et la pastille %q : %.3f mm < %.3f mm",
+   567→                                seg.net, pad.net, d, required),
+   568→                        X: pt.X, Y: pt.Y, Layer: seg.layer, Net: seg.net,
+   569→                })
+   570→        }
+   571→}
+   572→
+   573→func (r *drcRun) checkSegVia(seg, via *drcObj) {
+   574→        clearance, sev := r.clearanceFor(seg, via, seg.layer)
+   575→        required := clearance + seg.width/2 + via.r
+   576→        d, pt := closestPointOnSegment(via.seg.A, seg.seg)
+   577→        if d+geometry.Epsilon < required {
+   578→                r.add(DRCViolation{
+   579→                        Code: CodeDRCClearance, Severity: sev,
+   580→                        Message: fmt.Sprintf("isolation insuffisante entre la piste %q et le via %q : %.3f mm < %.3f mm",
+   581→                                seg.net, via.net, d, required),
+   582→                        X: pt.X, Y: pt.Y, Layer: seg.layer, Net: seg.net,
+   583→                })
+   584→        }
+   585→}
+   586→
+   587→func (r *drcRun) checkViaVia(a, b *drcObj) {
+   588→        clearance, sev := r.clearanceFor(a, b, a.viaLo)
+   589→        required := clearance + a.r + b.r
+   590→        d := a.seg.A.DistanceTo(b.seg.A)
+   591→        if d+geometry.Epsilon < required {
+   592→                r.add(DRCViolation{
+   593→                        Code: CodeDRCClearance, Severity: sev,
+   594→                        Message: fmt.Sprintf("isolation insuffisante entre les vias %q et %q : %.3f mm < %.3f mm",
+   595→                                a.net, b.net, d, required),
+   596→                        X: (a.seg.A.X + b.seg.A.X) / 2, Y: (a.seg.A.Y + b.seg.A.Y) / 2,
+   597→                        Layer: a.viaLo, Net: a.net,
+   598→                })
+   599→        }
+   600→}
+   601→
+   602→// --------------------------------------------------------------
+   603→// Primitives géométriques locales
+   604→// --------------------------------------------------------------
+   605→
+   606→// closestPointOnSegment returns the distance from p to segment s and the
+   607→// closest point on s.
+   608→func closestPointOnSegment(p geometry.Point, s geometry.Segment) (float64, geometry.Point) {
+   609→        abx, aby := s.B.X-s.A.X, s.B.Y-s.A.Y
+   610→        apx, apy := p.X-s.A.X, p.Y-s.A.Y
+   611→        len2 := abx*abx + aby*aby
+   612→        if len2 < geometry.Epsilon {
+   613→                return p.DistanceTo(s.A), s.A
+   614→        }
+   615→        t := geometry.Clamp((apx*abx+apy*aby)/len2, 0, 1)
+   616→        cp := geometry.Point{X: s.A.X + t*abx, Y: s.A.Y + t*aby}
+   617→        return p.DistanceTo(cp), cp
+   618→}
+   619→
+   620→// segmentSegmentDistance returns the shortest distance between two segments
+   621→// and the closest point on the first one. Crossing segments yield 0.
+   622→func segmentSegmentDistance(a, b geometry.Segment) (float64, geometry.Point) {
+   623→        if geometry.SegmentsIntersect(a.A, a.B, b.A, b.B) {
+   624→                return 0, a.A
+   625→        }
+   626→        best := math.Inf(1)
+   627→        var bestPt geometry.Point
+   628→        for _, p := range [4]geometry.Point{a.A, a.B, b.A, b.B} {
+   629→                var d float64
+   630→                var pt geometry.Point
+   631→                if p == a.A || p == a.B {
+   632→                        d, pt = closestPointOnSegment(p, b)
+   633→                } else {
+   634→                        d, pt = closestPointOnSegment(p, a)
+   635→                }
+   636→                if d < best {
+   637→                        best, bestPt = d, pt
+   638→                }
+   639→        }
+   640→        return best, bestPt
+   641→}
+   642→
+   643→// rectEdges returns the four boundary segments of the board rectangle.
+   644→func rectEdges(w, h float64) [4]geometry.Segment {
+   645→        c := []geometry.Point{{X: 0, Y: 0}, {X: w, Y: 0}, {X: w, Y: h}, {X: 0, Y: h}}
+   646→        return [4]geometry.Segment{
+   647→                {A: c[0], B: c[1]}, {A: c[1], B: c[2]}, {A: c[2], B: c[3]}, {A: c[3], B: c[0]},
+   648→        }
+   649→}
+   650→
+   651→// segmentRectDistance returns the shortest distance between a segment and
+   652→// the board boundary, plus the closest point on the segment.
+   653→func segmentRectDistance(s geometry.Segment, edges [4]geometry.Segment) (float64, geometry.Point) {
+   654→        best := math.Inf(1)
+   655→        var bestPt geometry.Point
+   656→        for _, e := range edges {
+   657→                d, pt := segmentSegmentDistance(s, e)
+   658→                if d < best {
+   659→                        best, bestPt = d, pt
+   660→                }
+   661→        }
+   662→        return best, bestPt
+   663→}
+   664→
+   665→// pointRectBoundaryDistance returns the shortest distance between a point
+   666→// and the board boundary, plus the closest boundary point.
+   667→func pointRectBoundaryDistance(p geometry.Point, edges [4]geometry.Segment) (float64, geometry.Point) {
+   668→        best := math.Inf(1)
+   669→        var bestPt geometry.Point
+   670→        for _, e := range edges {
+   671→                d, pt := closestPointOnSegment(p, e)
+   672→                if d < best {
+   673→                        best, bestPt = d, pt
+   674→                }
+   675→        }
+   676→        return best, bestPt
+   677→}
+   678→
+   679→func viaLayersOverlap(a, b *drcObj) bool {
+   680→        alo, ahi := a.viaLo, a.viaHi
+   681→        blo, bhi := b.viaLo, b.viaHi
+   682→        if alo > ahi {
+   683→                alo, ahi = ahi, alo
+   684→        }
+   685→        if blo > bhi {
+   686→                blo, bhi = bhi, blo
+   687→        }
+   688→        return alo <= bhi && blo <= ahi
+   689→}
+   690→
+   691→// netClassMap builds the net name → class lookup used by the rule resolver.
+   692→func netClassMap(s *domainschematic.Schematic) map[string]domainschematic.NetClass {
+   693→        out := map[string]domainschematic.NetClass{}
+   694→        if s == nil {
+   695→                return out
+   696→        }
+   697→        for i := range s.Nets {
+   698→                out[s.Nets[i].Name] = s.Nets[i].Class
+   699→        }
+   700→        return out
+   701→}
+   702→
+   703→// defaultMaxClearance returns a safe fallback clearance used when no rule
+   704→// matches.
+   705→func defaultMaxClearance(cs *domainconstraints.ConstraintSet) float64 {
+   706→        if v, ok := cs.Value(domainconstraints.RuleMinClearance, domainconstraints.AnyNetClass, domainconstraints.AnyLayer); ok {
+   707→                return v
+   708→        }
+   709→        return 0.2
+   710→}
+   711→

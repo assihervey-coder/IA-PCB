@@ -1,0 +1,12 @@
+{
+  "name": "kidcad-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Tests E2E Playwright de KidCAD-Pro-IA (parcours projet, PCB, routage)",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.47.0"
+  }
+}

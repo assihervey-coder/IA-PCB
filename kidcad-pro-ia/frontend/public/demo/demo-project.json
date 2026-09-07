@@ -1,0 +1,9 @@
+{
+  "id": "demo-001",
+  "name": "Robot Line Follower",
+  "description": "Carte de contrôle pour robot suiveur de ligne : temporisation NE555, capteurs infrarouge, pilote moteur 2 broches et signalisation LED.",
+  "layer_count": 2,
+  "status": "active",
+  "created_at": "2025-01-15T09:24:00Z",
+  "updated_at": "2025-03-02T17:41:00Z"
+}

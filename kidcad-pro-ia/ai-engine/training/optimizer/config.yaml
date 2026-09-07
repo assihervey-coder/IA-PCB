@@ -1,0 +1,9 @@
+# Optimiseur : objectifs et couts du rip-up & reroute (service OptimizeRoutes)
+objectives:             # sous-ensemble utilise dans le score composite
+  - length
+  - vias
+  - drc
+via_cost_mm: 2.0        # equivalent mm d'un via
+drc_cost: 10.0          # penalite par violation DRC estimee
+clearance_mm: 0.2       # clearance pour l'estimation DRC
+max_ripup_nets: 0       # 0 = tous les nets (tries du plus long au plus court)
