@@ -531,6 +531,11 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         self._model_path = self._resolve_model_path(model_path)
         self._device = _detect_device(str(router_cfg.get("device", "auto") or "auto"))
         self._clearance_cells = max(0, int(env_cfg.get("clearance_cells", 1) or 1))
+        # Completude multi-pads : la jambe RL est chainee avec des jambes A*
+        # vers les pads restants (un episode RL s'arrete au premier pad
+        # atteint — sans chainage, 50/52 nets d'une vraie carte seraient
+        # structurellement incomplets). Desactivable via router.rl_leg_completion.
+        self._rl_leg_completion = bool(router_cfg.get("rl_leg_completion", True))
         # Placement seed: derived from the request (number of components) for
         # determinism, unless the YAML config pins an explicit integer seed.
         raw_seed = placer_cfg.get("seed")
@@ -607,6 +612,11 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         convergera jamais (mesures imitation learning 2026-09) — echec
         rapide pour laisser le repli A* prendre la main sans monopoliser
         le moteur pendant des minutes par net en echec.
+
+        Completude multi-pads : l'episode RL s'arrete au premier pad
+        atteint ; si ``router.rl_leg_completion`` est actif (defaut), les
+        pads restants sont chaines par A* depuis la jambe RL — la politique
+        apporte la premiere jambe, l'expert acheve la topologie.
         """
         agent = self._agent
         if agent is None:
@@ -626,10 +636,70 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
                     break
             if not info.get("success"):
                 return None
-            return env.path_to_route(net_index, env.episode_path)
+            leg1_cells = list(env.episode_path)
+            if not self._rl_leg_completion:
+                return env.path_to_route(net_index, leg1_cells)
+            route = self._chain_remaining_legs(env, net_index, leg1_cells)
+            if not route.get("completed"):
+                # Chainage incomplet : repli A* integral (l'appelant le
+                # declenche sur None) plutot qu'une route partielle.
+                return None
+            return route
         except Exception as exc:
             self._log.warning("RL rollout failed on net %s: %s", env.net_names[net_index], exc)
             return None
+
+    def _chain_remaining_legs(self, env: PCBRouteEnv, net_index: int,
+                              leg1_cells: list) -> dict:
+        """Chaine les jambes A* vers les pads restants apres une jambe RL.
+
+        Miroir exact de :meth:`PCBRouteEnv.astar_route` (source = cellule
+        connectee la plus proche du prochain pad, cells propres toujours
+        libres pour le net) avec la premiere jambe fournie par la politique
+        RL. Les runs colineaires inter-jambes sont fondus en segments.
+        """
+        net = env._nets[net_index]
+        env.path_to_route(net_index, leg1_cells)  # enregistre la jambe RL
+        connected = {leg1_cells[0], leg1_cells[-1]}
+
+        pad_cells: list = []
+        seen: set = set()
+        for pad in net.pads:
+            cell = env._pad_cell(pad)
+            if cell not in seen:
+                seen.add(cell)
+                pad_cells.append(cell)
+        remaining = [c for c in pad_cells if c not in connected]
+
+        all_cells = list(leg1_cells)
+        completed = True
+        while remaining:
+            target = min(
+                remaining,
+                key=lambda t: (min(env._pad_dist(t, c) for c in connected), t),
+            )
+            source = min(connected, key=lambda c: (env._pad_dist(c, target), c))
+            leg = env._astar(net_index, source, target)
+            if leg is None:
+                completed = False
+                break
+            leg_cells = list(leg)
+            bucket = env._routes_cells.setdefault(net.name, set())
+            bucket.update(leg_cells)
+            all_cells.extend(leg_cells[1:])
+            connected.add(target)
+            remaining.remove(target)
+
+        segments, vias = env._cells_to_geometry(all_cells, net.min_track_width_mm)
+        route = {
+            "net": net.name,
+            "segments": segments,
+            "vias": vias,
+            "length_mm": env._segments_length_mm(segments),
+            "completed": completed,
+        }
+        env._net_routes[net.name] = route
+        return route
 
     # -------------------------------------------------------------- health
 

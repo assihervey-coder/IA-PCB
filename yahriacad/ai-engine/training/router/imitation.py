@@ -89,6 +89,26 @@ def _route_order(env: PCBRouteEnv) -> list[int]:
     )
 
 
+def _label_legal(env: PCBRouteEnv, net_index: int, source: Cell,
+                 dx: int, dy: int, dl: int) -> bool:
+    """Vrai si le pas etiqueté est LEGAL vu de l'observation.
+
+    L'A* force-libere la cellule but (``free[glayer, gy, gx] = True``) pour
+    traverser les cas degeneres de pads empiles dont la cellule est dejà
+    occupée par la route d'un autre net ; une telle etiquette enseigne au
+    reseau une action que le masque d'actions interdit (loss infinie au
+    training, action inatteignable en production — le repli A* la couvre).
+    On filtre donc les etiquettes dont la cellule d'arrivee est bloquee
+    dans le masque libre de l'environnement.
+    """
+    free = env._free_mask(net_index)
+    tx, ty, tl = source[0] + dx, source[1] + dy, source[2] + dl
+    if not (0 <= tl < env.layer_count and 0 <= tx < env.grid_w
+            and 0 <= ty < env.grid_h):
+        return False
+    return bool(free[tl, ty, tx])
+
+
 def _pack_planes(obs0, layer_count: int):
     """Pack les canaux statiques de l'observation (obstacles+source+cibles)."""
     static = obs0[: layer_count + 2] > 0.5
@@ -102,6 +122,7 @@ def collect_demos(
     seed: int = 0,
     max_nets: int = 0,
     probes: int = 0,
+    skip_decoys: bool = False,
 ) -> list[dict]:
     """Collecte une demonstration (trajectoire experte) par net routable.
 
@@ -137,6 +158,8 @@ def collect_demos(
         route = env.astar_route(net_index)  # enregistre les obstacles progressifs
         if not route.get("completed"):
             continue
+        if skip_decoys and env._nets[net_index].net_class == "decoy":
+            continue  # net leurre : route (congestion) mais pas de demonstration
         obs0 = env.reset(net_index)
         ep = env._episode
         if ep.start is None or not ep.targets:
@@ -164,6 +187,9 @@ def collect_demos(
             action = encode_expert_action(x2 - x1, y2 - y1, l2 - l1)
             if action is None:  # jamais produit par A* ; garde-fou
                 break
+            if not _label_legal(env, net_index, (x1, y1, l1),
+                                x2 - x1, y2 - y1, l2 - l1):
+                break  # but conteste (pad empile) : arrete la demo ici
             steps.append((ep.x, ep.y, ep.layer))
             actions.append(action)
             _obs, _reward, terminated, truncated, info = env.step(action)
@@ -197,6 +223,8 @@ def collect_demos(
                     dl = probe_path[1][2] - source[2]
                     action = encode_expert_action(dx, dy, dl)
                     if action is None:
+                        continue
+                    if not _label_legal(env, net_index, source, dx, dy, dl):
                         continue
                     # Sur-echantillonnage des cas difficiles : quand l'expert
                     # evite un obstacle (action != direction naive vers la
@@ -294,6 +322,8 @@ def collect_dagger(
             action = encode_expert_action(dx, dy, dl)
             if action is None:
                 continue
+            if not _label_legal(env, net_index, cell, dx, dy, dl):
+                continue  # cellule bloquee dans l'obs (pad empile) : pas d'etiquette
             steps.append(cell)
             actions.append(action)
         if steps:
@@ -346,6 +376,45 @@ def load_demos(path: str | Path) -> dict:
     """Recharge un ``.npz`` de demonstrations (numpy pur, sans pickle)."""
     with np.load(str(path), allow_pickle=False) as data:
         return {key: data[key] for key in data.files}
+
+
+def merge_demos(paths: list[str | Path], out_path: str | Path) -> int:
+    """Concatene plusieurs ``.npz`` de demonstrations en un seul.
+
+    Permet de fractionner la collecte (cartes realistes lentes) sur
+    plusieurs sessions tout en gardant un unique jeu d'entrainement.
+    """
+    demos: list[dict] = []
+    total = 0
+    for path in paths:
+        data = load_demos(path)
+        meta, planes = data["meta"], data["planes"]
+        steps, actions, nets = data["steps"], data["actions"], data["nets"]
+        for row in range(len(meta)):
+            h, w, layers, step_off, n, plane_off, plane_bytes = (
+                int(v) for v in meta[row]
+            )
+            bits = np.unpackbits(planes[plane_off : plane_off + plane_bytes])
+            static = bits[: (layers + 2) * h * w].reshape(layers + 2, h, w)
+            demos.append(
+                {
+                    "net": str(nets[row]),
+                    "layers": layers,
+                    "h": h,
+                    "w": w,
+                    "planes": np.packbits(np.ascontiguousarray(static)),
+                    "steps": [tuple(int(v) for v in r) for r in steps[step_off : step_off + n]],
+                    "actions": [int(a) for a in actions[step_off : step_off + n]],
+                }
+            )
+            total += n
+    save_demos(demos, out_path)
+    print(
+        f"merge: {len(demos)} demonstrations / {total} pas depuis "
+        f"{[str(p) for p in paths]} -> {out_path}",
+        flush=True,
+    )
+    return total
 
 
 # ---------------------------------------------------------------------------
@@ -467,7 +536,25 @@ def train_bc(
     agent.net.train()
 
     optimizer = torch.optim.Adam(agent.net.parameters(), lr=lr)
-    loss_fn = torch.nn.CrossEntropyLoss()
+    # Cross-entropy PONDEREE par classe : sur les vraies cartes, ~7 % des pas
+    # experts sont des vias mais les deplacements dominent le jeu de donnees
+    # (>90 %) ; sans ponderation, la politique n'apprend JAMAIS a poser de
+    # via (accuracy via ~0.00-0.08) et diverge au premier changement de
+    # couche. Poids inverse-sqrt des frequences, normalises a moyenne 1.
+    counts = np.bincount(
+        [int(data["actions"][dataset.index[i][1]]) for i in train_idx],
+        minlength=12,
+    ).astype(np.float64)
+    weights = 1.0 / np.sqrt(np.maximum(counts, 1.0))
+    weights = weights / weights.mean()
+    loss_fn = torch.nn.CrossEntropyLoss(
+        weight=torch.as_tensor(weights, dtype=torch.float32)
+    )
+    print(
+        "bc: poids de classe "
+        f"{ {ActionLabel(k): round(float(v), 2) for k, v in enumerate(weights) if counts[k]} }",
+        flush=True,
+    )
 
     started = time.monotonic()
     epochs_run = 0
@@ -537,6 +624,11 @@ def train_bc(
         for obs_batch, act_batch in batches(train_idx, shuffle=True):
             logits, _value = agent.net(obs_batch)
             loss = loss_fn(logits, act_batch)
+            if not torch.isfinite(loss):
+                # Etiquette contree residuelle (action experte masquee) :
+                # batch indisponible, on passe sans casser la moyenne.
+                optimizer.zero_grad()
+                continue
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(agent.net.parameters(), 5.0)
@@ -553,16 +645,19 @@ def train_bc(
                 )
                 break
         epochs_run = epoch
-        val_acc, _ = accuracy(val_idx) if val_idx else (float("nan"), {})
+        over_budget = time_budget_s > 0 and time.monotonic() - started > time_budget_s
+        val_acc, _ = accuracy(val_idx) if val_idx and not over_budget else (float("nan"), {})
         print(
             f"bc: epoch {epoch}/{epochs} loss {running / max(1, count):.4f} "
             f"val_accuracy {val_acc:.3f}",
             flush=True,
         )
-        if time_budget_s > 0 and time.monotonic() - started > time_budget_s:
+        if over_budget:
             break
 
-    train_acc, class_acc = accuracy(train_idx)
+    train_acc, class_acc = accuracy(train_idx) if len(train_idx) <= 4000 else accuracy(
+        rng.sample(sorted(train_idx), 4000)
+    )
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     if not agent.save(str(out)):
@@ -607,6 +702,91 @@ def _greedy_rollout(env: PCBRouteEnv, net_index: int, agent) -> dict | None:
     return env.path_to_route(net_index, env.episode_path)
 
 
+def hybrid_rl_route(env: PCBRouteEnv, net_index: int, agent,
+                    step_budget: int | None = None) -> dict | None:
+    """Strategie hybride : RL pour la premiere jambe, A* pour la suite.
+
+    L'episode RL se termine au PREMIER pad atteint : sur une vraie carte ou
+    50/52 nets sont multi-pads (4-52 pads), un rollout mono-jambe ne peut
+    STRUCTURELLEMENT pas completer un net — l'eval ``completed`` mesurait un
+    plafond d'architecture, pas une competence de politique. Ici la jambe
+    RL (depart -> pad le plus proche) est chaine avec les jambes A* vers les
+    pads restants, exactement comme :meth:`astar_route` chaine les siennes.
+
+    Returns:
+        Route dictionnaire complet (``completed`` True quand tous les pads
+        sont connectes), ou ``None`` si la jambe RL elle-meme echoue (appelant
+        : repli A* integral).
+    """
+    obs = env.reset(net_index)
+    ep = env._episode
+    if ep.start is None or not ep.targets:
+        return None
+    if step_budget is not None:
+        budget = int(step_budget)
+    else:
+        # Parite production : ~4x la distance manhattan optimale (+96).
+        dist = min(env._pad_dist(ep.start, t) for t in ep.targets)
+        budget = min(env.max_steps, 4 * dist + 96)
+    info: dict = {}
+    for _ in range(budget):
+        action = agent.select_action(obs, greedy=True)
+        obs, _reward, terminated, truncated, info = env.step(action)
+        if terminated or truncated:
+            break
+    if not info.get("success"):
+        return None
+
+    net = env._nets[net_index]
+    leg1_cells = list(env.episode_path)
+    env.path_to_route(net_index, leg1_cells)  # enregistre (cells propres libres)
+    connected = {leg1_cells[0], leg1_cells[-1]}
+    remaining = [c for c in pad_cells_of(env, net_index) if c not in connected]
+
+    all_cells = list(leg1_cells)
+    completed = True
+    while remaining:
+        target = min(
+            remaining,
+            key=lambda t: (min(env._pad_dist(t, c) for c in connected), t),
+        )
+        source = min(connected, key=lambda c: (env._pad_dist(c, target), c))
+        leg = env._astar(net_index, source, target)
+        if leg is None:
+            completed = False
+            break
+        leg_cells = list(leg)
+        bucket = env._routes_cells.setdefault(net.name, set())
+        bucket.update(leg_cells)
+        all_cells.extend(leg_cells[1:])
+        connected.add(target)
+        remaining.remove(target)
+
+    # Geometrie fusionnee : jambe RL + jambes A* (runs colineaires fondus).
+    segments, vias = env._cells_to_geometry(all_cells, net.min_track_width_mm)
+    route = {
+        "net": net.name,
+        "segments": segments,
+        "vias": vias,
+        "length_mm": env._segments_length_mm(segments),
+        "completed": completed,
+    }
+    env._net_routes[net.name] = route
+    return route
+
+
+def pad_cells_of(env: PCBRouteEnv, net_index: int) -> list[Cell]:
+    """Cells uniques des pads du net (ordre de declaration)."""
+    cells: list[Cell] = []
+    seen: set[Cell] = set()
+    for pad in env._nets[net_index].pads:
+        cell = env._pad_cell(pad)
+        if cell not in seen:
+            seen.add(cell)
+            cells.append(cell)
+    return cells
+
+
 def evaluate_offline(
     model_path: str,
     board: dict,
@@ -615,6 +795,7 @@ def evaluate_offline(
     seed: int = 0,
     max_nets: int = 0,
     rollout_cap: int = 0,
+    mode: str = "leg1",
 ) -> dict:
     """Compare A* et BC sur la meme carte avec deux environnements separes.
 
@@ -622,6 +803,11 @@ def evaluate_offline(
         rollout_cap: plafond de pas pour les rollouts BC (0 = max_steps de
             l'env). Un cap evite des minutes d'errance par net en echec ;
             400 represente deja ~2.6x le plus long chemin expert.
+        mode: ``pure`` = rollout glouton integral (completude mono-jambe,
+            plafonnee structurellement sur nets multi-pads) ; ``leg1``
+            (defaut, fidelite production) = jambe RL puis chainage A* des
+            pads restants, ce qui mesure la contribution reelle de la
+            politique sur des cartes multi-pads.
 
     Returns:
         Dict avec, par strategy : completion, longueur, vias, temps ; et les
@@ -650,8 +836,19 @@ def evaluate_offline(
         route_star = env_star.astar_route(net_index)
         t_star = time.monotonic() - t0
         t0 = time.monotonic()
-        route_bc = _greedy_rollout(env_bc, net_index, agent)
+        if mode == "leg1":
+            route_bc = hybrid_rl_route(env_bc, net_index, agent)
+        else:
+            route_bc = _greedy_rollout(env_bc, net_index, agent)
         t_bc = time.monotonic() - t0
+        if route_bc is None or not route_bc.get("completed"):
+            # FIDELITE PRODUCTION : en cas d'echec BC, la route A* de repli
+            # est ENREGISTREE sur env_bc (comme le fait service._rl_route et
+            # collect_dagger). Sans cela, les nets suivants roulent sur une
+            # carte trouee, hors de la distribution d'entrainement — l'eval
+            # sous-estimait severement la politique (2/52 au lieu de ~5/10
+            # sur les premiers nets).
+            env_bc.astar_route(net_index)
         if route_bc is None:
             route_bc = {"net": env_bc.net_names[net_index], "segments": [], "vias": [],
                         "length_mm": 0.0, "completed": False}
@@ -674,6 +871,7 @@ def evaluate_offline(
 
     return {
         "nets": len(rows),
+        "mode": mode,
         "astar": {**_totals("star"), "time_s": round(sum(r["t_star"] for r in rows), 2)},
         "bc": {**_totals("bc"), "time_s": round(sum(r["t_bc"] for r in rows), 2)},
         "bc_with_fallback": {
@@ -714,6 +912,9 @@ def main(argv: list[str] | None = None) -> int:
     p_gen.add_argument("--out", default="training/router/demos.npz")
     p_gen.add_argument("--synthetic", type=int, default=0,
                        help="ajoute N cartes synthetiques au curriculum")
+    p_gen.add_argument("--synthetic-real", type=int, default=0,
+                       help="ajoute N cartes REALISTES (0,25 mm, 70-115 x 50-85 mm, "
+                            "congestion par leurres) au curriculum")
     p_gen.add_argument("--synthetic-seed", type=int, default=42)
     p_gen.add_argument("--max-nets", type=int, default=0,
                        help="plafonne le nombre de nets par carte (0 = tous)")
@@ -741,7 +942,14 @@ def main(argv: list[str] | None = None) -> int:
     p_eval.add_argument("--max-nets", type=int, default=0)
     p_eval.add_argument("--rollout-cap", type=int, default=0,
                         help="plafond de pas par rollout BC (0 = max_steps)")
+    p_eval.add_argument("--mode", choices=["leg1", "pure"], default="leg1",
+                        help="leg1 = jambe RL + chainage A* (fidelite production) ; "
+                             "pure = rollout glouton integral")
     p_eval.add_argument("--clearance", type=int, default=1)
+
+    p_merge = sub.add_parser("merge", help="concatene plusieurs npz de demonstrations")
+    p_merge.add_argument("--inputs", nargs="+", required=True)
+    p_merge.add_argument("--out", required=True)
 
     args = parser.parse_args(argv)
 
@@ -764,6 +972,17 @@ def main(argv: list[str] | None = None) -> int:
                 demos.extend(got)
             print(f"generate: +{args.synthetic} cartes synthetiques "
                   f"(total {len(demos)} demonstrations)", flush=True)
+        if getattr(args, "synthetic_real", 0) > 0:
+            from evaluation.bench import make_realistic_board
+
+            for k in range(args.synthetic_real):
+                board, nets = make_realistic_board(args.synthetic_seed * 1000 + k)
+                got = collect_demos(board, nets, clearance_cells=args.clearance,
+                                    max_nets=args.max_nets, probes=args.probes,
+                                    skip_decoys=True)
+                demos.extend(got)
+            print(f"generate: +{args.synthetic_real} cartes realistes 0,25 mm "
+                  f"(total {len(demos)} demonstrations)", flush=True)
         if not demos:
             print("generate: aucune demonstration collectee", flush=True)
             return 1
@@ -771,6 +990,10 @@ def main(argv: list[str] | None = None) -> int:
         save_demos(demos, args.out)
         print(f"generate: {len(demos)} demonstrations / {steps_total} pas -> {args.out}",
               flush=True)
+        return 0
+
+    if args.command == "merge":
+        merge_demos(args.inputs, args.out)
         return 0
 
     if args.command == "train":
@@ -789,7 +1012,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "eval":
         board, nets = _load_route_input(args.input)
         report = evaluate_offline(args.model, board, nets, clearance_cells=args.clearance,
-                                  max_nets=args.max_nets, rollout_cap=args.rollout_cap)
+                                  max_nets=args.max_nets, rollout_cap=args.rollout_cap,
+                                  mode=args.mode)
         print(json.dumps(report, indent=2, ensure_ascii=False))
         return 0
 

@@ -13,7 +13,12 @@ router:
   device: auto
   # Chemin du checkpoint PPO (relatif a la racine ai-engine/).
   # Genere par l'entrainement, JAMAIS committe a la main.
-  model_path: training/router/model_v1.pt
+  # model_bc_v6.pt = imitation learning (BC pondere + 2 rondes DAgger sur
+  # vraie carte) ; strategie production = jambe RL + chainage A* des pads
+  # restants (rl_leg_completion). Absent => repli A* integral.
+  model_path: training/router/model_bc_v6.pt
+  # Completer les nets multi-pads par A* apres la premiere jambe RL.
+  rl_leg_completion: true
   # Canaux d'observation : layer_count (2) + source + cible + indicateur
   # couche + position de l'agent (canal ajoute : sans lui la politique
   # n'est pas reactive). Les checkpoints 5 canaux precedents sont

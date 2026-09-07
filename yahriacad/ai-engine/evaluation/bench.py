@@ -96,6 +96,115 @@ def make_synthetic_board(seed: int) -> tuple:
     return board, nets
 
 
+def make_realistic_board(seed: int) -> tuple:
+    """Deterministically generate a REALISTIC-SCALE board (curriculum 0,25 mm).
+
+    Bridges the transfer gap observed between the small synthetic curriculum
+    (40x30 mm -> 160x120 cells) and real KiCad boards (100x80 mm -> 400x320
+    cells): same 0.25 mm resolution, but a board outline, a net count and a
+    congestion level drawn from the real-board distribution.
+
+    Features:
+    * outline 70-115 x 50-85 mm -> grids 281-461 x 201-341 cells;
+    * 14-40 routable nets, 2 pads each (20 % have 3), pads 0.5-1.4 mm on
+      either layer (forces the expert to cross layers with vias sometimes);
+    * 24-64 "decoy" nets with two close pads (0.5-1.6 mm apart): they mimic
+      small two-pad components. They are routed first (short spans) and
+      their tracks congest the board exactly like sequential routing on a
+      real design; demos for them are skipped by ``collect_demos`` via the
+      ``decoy`` net class.
+
+    Args:
+        seed: RNG seed (same seed -> same board).
+
+    Returns:
+        ``(board_dict, nets_list)``.
+    """
+    rng = random.Random(seed * 7919 + 13)
+    w_mm = round(rng.uniform(70.0, 115.0), 2)
+    h_mm = round(rng.uniform(50.0, 85.0), 2)
+    board = {
+        "width_mm": w_mm,
+        "height_mm": h_mm,
+        "layer_count": 2,
+        "grid_resolution_mm": 0.25,
+        "layer_names": ["F.Cu", "B.Cu"],
+    }
+    margin = 2.0
+    placed: list = []
+    nets: list = []
+
+    def _pad(ref: str, name: str, x: float, y: float, layer: int, side: float) -> dict:
+        return {
+            "component_ref": ref,
+            "pad_name": name,
+            "position": {"x": round(x, 3), "y": round(y, 3)},
+            "layer": layer,
+            "width_mm": round(side, 3),
+            "height_mm": round(side, 3),
+        }
+
+    n_nets = rng.randint(14, 40)
+    names = rng.sample(NET_NAME_POOL, min(n_nets, len(NET_NAME_POOL)))
+    while len(names) < n_nets:
+        names.append(f"N{len(names)}")
+
+    for name in names:
+        n_pads = 3 if rng.random() < 0.2 else 2
+        pads = []
+        for pad_idx in range(n_pads):
+            for _attempt in range(300):
+                x = rng.uniform(margin, w_mm - margin)
+                y = rng.uniform(margin, h_mm - margin)
+                layer = rng.randrange(2)
+                if all(
+                    abs(x - px) > 2.5 or abs(y - py) > 2.5 for px, py in placed
+                ):
+                    placed.append((x, y))
+                    pads.append(
+                        _pad(f"U{len(placed)}", str(pad_idx + 1), x, y, layer,
+                             rng.uniform(0.5, 1.4))
+                    )
+                    break
+        power = name in ("GND", "VCC")
+        nets.append(
+            {
+                "name": name,
+                "net_class": "power" if power else "default",
+                "pads": pads,
+                "min_track_width_mm": 0.4 if power else 0.25,
+                "clearance_mm": 0.2,
+            }
+        )
+
+    # Decoys : petites empreintes 2 broches qui congestent la carte.
+    n_decoys = rng.randint(24, 64)
+    for k in range(n_decoys):
+        cx = rng.uniform(margin, w_mm - margin)
+        cy = rng.uniform(margin, h_mm - margin)
+        if all(abs(cx - px) > 1.8 or abs(cy - py) > 1.8 for px, py in placed):
+            placed.append((cx, cy))
+            gap = rng.uniform(0.5, 1.6) / 2.0
+            horizontal = rng.random() < 0.5
+            layer = rng.randrange(2)
+            side = rng.uniform(0.5, 0.9)
+            x1, y1 = (cx - gap, cy) if horizontal else (cx, cy - gap)
+            x2, y2 = (cx + gap, cy) if horizontal else (cx, cy + gap)
+            nets.append(
+                {
+                    "name": f"DEC{k}",
+                    "net_class": "decoy",
+                    "pads": [
+                        _pad(f"D{k}", "1", x1, y1, layer, side),
+                        _pad(f"D{k}", "2", x2, y2, layer, side),
+                    ],
+                    "min_track_width_mm": 0.25,
+                    "clearance_mm": 0.2,
+                }
+            )
+    return board, nets
+
+
 def random_rollout(env: PCBRouteEnv, net_index: int, rng: random.Random) -> dict:
     """Route one net with uniformly random actions (baseline agent)."""
     space = ActionSpace()

@@ -13,7 +13,7 @@ AI_LOG=/tmp/yahriacad-imit2-ai.log
 WORK=/tmp/yahriacad-imitation
 BOARD=/tmp/kicad-complex_hierarchy.kicad_pcb
 AIROOT=/home/z/my-project/yahriacad/ai-engine
-MODEL=training/router/model_bc_real2.pt
+MODEL=${MODEL:-training/router/model_bc_real2.pt}
 SKIP_OFFLINE=${SKIP_OFFLINE:-0}
 
 export PATH=/home/z/toolchain/go/bin:$PATH

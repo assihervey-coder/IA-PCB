@@ -47,33 +47,89 @@ def main(argv: list[str] | None = None) -> int:
                         help="nombre total de pas d'environnement (défaut : 200000)")
     parser.add_argument("--seed", type=int, default=0, help="graine globale")
     parser.add_argument("--rollout", type=int, default=None,
-                        help="longueur d'un rollout (défaut : config PPO)")
+                        help="longueur d'un rollout (défaut : 256 synthétique, "
+                             "64 cartes réalistes/mixtes — RAM des grandes grilles)")
     parser.add_argument("--out", default="training/router/model_v1.pt",
                         help="chemin du checkpoint de sortie (relatif à ai-engine/)")
     parser.add_argument("--save-every", type=int, default=0,
                         help="sauvegarde intermédiaire tous les N pas (0 = final seul)")
+    parser.add_argument("--init-from", default=None,
+                        help="checkpoint de départ (fine-tuning PPO depuis un "
+                             "checkpoint BC — le meilleur des deux mondes)")
+    parser.add_argument("--board", choices=["synthetic", "realistic", "mixed"],
+                        default="synthetic",
+                        help="distribution d'environnements : synthetic = petites "
+                             "cartes historiques ; realistic = curriculum 0,25 mm à "
+                             "l'échelle réelle ; mixed = alternance des deux")
+    parser.add_argument("--lr", type=float, default=None,
+                        help="taux d'apprentissage PPO (défaut : config ; "
+                             "1e-4 conseillé en fine-tuning)")
+    parser.add_argument("--ent-coef", type=float, default=None,
+                        help="coefficient d'entropie (défaut : config ; "
+                             "0.005 conseillé en fine-tuning depuis BC)")
+    parser.add_argument("--vf-coef", type=float, default=None,
+                        help="poids de la perte de valeur (0.05 conseillé en "
+                             "fine-tuning depuis BC : la tête de valeur d'un "
+                             "checkpoint BC est aléatoire — avec 0.5, ses "
+                             "gradients détruisent le tronc partagé)")
+    parser.add_argument("--epochs", type=int, default=None,
+                        help="epochs PPO par mise à jour (2 conseillé en fine-tuning)")
     args = parser.parse_args(argv)
 
     _require_torch()
 
     import numpy as np
-    from evaluation.bench import make_synthetic_board
+    from evaluation.bench import make_realistic_board, make_synthetic_board
     from src.agents.ppo_agent import PPOAgent, PPOConfig, PPOTrainer
     from src.environment.pcb_env import EnvConfig, PCBRouteEnv
 
     cfg = PPOConfig()
     cfg.seed = args.seed
-    probe_env = PCBRouteEnv(*make_synthetic_board(args.seed),
+    if args.lr is not None:
+        cfg.lr = args.lr
+    if args.ent_coef is not None:
+        cfg.ent_coef = args.ent_coef
+    if args.vf_coef is not None:
+        cfg.vf_coef = args.vf_coef
+    if args.epochs is not None:
+        cfg.epochs = args.epochs
+
+    board_makers = {
+        "synthetic": make_synthetic_board,
+        "realistic": make_realistic_board,
+    }
+
+    def board_for(k: int) -> tuple:
+        if args.board == "mixed":
+            maker = board_makers["realistic"] if k % 2 else board_makers["synthetic"]
+            return maker(args.seed * 1000 + k)
+        return board_makers[args.board](args.seed * 1000 + k)
+
+    probe_env = PCBRouteEnv(*board_for(0),
                             EnvConfig(clearance_cells=1, seed=args.seed))
     in_channels = probe_env.observation_shape[0]
     agent = PPOAgent(cfg, in_channels=in_channels, n_actions=12, device="cpu")
+    if args.init_from:
+        if not agent.load(args.init_from):
+            sys.exit(f"checkpoint initial illisible : {args.init_from}")
+        print(f"[init-from] politique initialisée depuis {args.init_from}", flush=True)
+
+    rollout_counter = {"k": 0}
 
     def env_factory() -> PCBRouteEnv:
-        board, nets = make_synthetic_board(args.seed)
+        board, nets = board_for(rollout_counter["k"])
+        rollout_counter["k"] += 1
         return PCBRouteEnv(board, nets, EnvConfig(clearance_cells=1, seed=args.seed))
 
+    # Longueur de rollout par défaut adaptée à la taille des grilles : les
+    # cartes réalistes (grilles 300x400) consomment ~3 Mo par pas d'obs —
+    # 256 pas feraient exploser la RAM du buffer.
+    rollout_len = args.rollout
+    if rollout_len is None:
+        rollout_len = 256 if args.board == "synthetic" else 64
+
     trainer = PPOTrainer(env_factory, agent, total_steps=args.steps,
-                         rollout_len=args.rollout)
+                         rollout_len=rollout_len)
 
     history: dict[str, list] = {"steps": [], "episode_reward": []}
 
