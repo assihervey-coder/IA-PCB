@@ -8,6 +8,8 @@ import type {
   ArenaReport,
   ArenaStanding,
   AutoFixResult,
+  AIModelInfo,
+  AIModelReloadResult,
   CollabApplyResult,
   CollabOpRequest,
   CollabState,
@@ -151,6 +153,20 @@ export const api = {
 
   async getJob(projectId: string, jobId: string): Promise<JobStatus> {
     const res = await http.get<JobStatus>(`/projects/${id(projectId)}/jobs/${encodeURIComponent(jobId)}`);
+    return res.data;
+  },
+
+  /** Modèle RL embarqué — état détaillé du checkpoint PyTorch (additif). */
+  async getAIModel(): Promise<AIModelInfo> {
+    const res = await http.get<AIModelInfo>(`/ai/model`);
+    return res.data;
+  },
+
+  /** Recharge le checkpoint RL à chaud (optionnellement depuis un autre .pt). */
+  async reloadAIModel(checkpointPath?: string): Promise<AIModelReloadResult> {
+    const res = await http.post<AIModelReloadResult>(`/ai/model/reload`, {
+      checkpoint_path: checkpointPath ?? "",
+    });
     return res.data;
   },
 

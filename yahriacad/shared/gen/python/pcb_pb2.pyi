@@ -221,3 +221,47 @@ class HealthResponse(_message.Message):
     device: str
     model_loaded: bool
     def __init__(self, status: _Optional[str] = ..., version: _Optional[str] = ..., device: _Optional[str] = ..., model_loaded: _Optional[bool] = ...) -> None: ...
+
+class ModelInfoRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class ModelInfo(_message.Message):
+    __slots__ = ("loaded", "device", "checkpoint_path", "checkpoint_mtime", "size_bytes", "in_channels", "n_actions", "param_count", "torch_available", "strategy")
+    LOADED_FIELD_NUMBER: _ClassVar[int]
+    DEVICE_FIELD_NUMBER: _ClassVar[int]
+    CHECKPOINT_PATH_FIELD_NUMBER: _ClassVar[int]
+    CHECKPOINT_MTIME_FIELD_NUMBER: _ClassVar[int]
+    SIZE_BYTES_FIELD_NUMBER: _ClassVar[int]
+    IN_CHANNELS_FIELD_NUMBER: _ClassVar[int]
+    N_ACTIONS_FIELD_NUMBER: _ClassVar[int]
+    PARAM_COUNT_FIELD_NUMBER: _ClassVar[int]
+    TORCH_AVAILABLE_FIELD_NUMBER: _ClassVar[int]
+    STRATEGY_FIELD_NUMBER: _ClassVar[int]
+    loaded: bool
+    device: str
+    checkpoint_path: str
+    checkpoint_mtime: str
+    size_bytes: int
+    in_channels: int
+    n_actions: int
+    param_count: int
+    torch_available: bool
+    strategy: str
+    def __init__(self, loaded: _Optional[bool] = ..., device: _Optional[str] = ..., checkpoint_path: _Optional[str] = ..., checkpoint_mtime: _Optional[str] = ..., size_bytes: _Optional[int] = ..., in_channels: _Optional[int] = ..., n_actions: _Optional[int] = ..., param_count: _Optional[int] = ..., torch_available: _Optional[bool] = ..., strategy: _Optional[str] = ...) -> None: ...
+
+class ReloadModelRequest(_message.Message):
+    __slots__ = ("checkpoint_path",)
+    CHECKPOINT_PATH_FIELD_NUMBER: _ClassVar[int]
+    checkpoint_path: str
+    def __init__(self, checkpoint_path: _Optional[str] = ...) -> None: ...
+
+class ReloadModelResponse(_message.Message):
+    __slots__ = ("loaded", "message", "info")
+    LOADED_FIELD_NUMBER: _ClassVar[int]
+    MESSAGE_FIELD_NUMBER: _ClassVar[int]
+    INFO_FIELD_NUMBER: _ClassVar[int]
+    loaded: bool
+    message: str
+    info: ModelInfo
+    def __init__(self, loaded: _Optional[bool] = ..., message: _Optional[str] = ..., info: _Optional[_Union[ModelInfo, _Mapping]] = ...) -> None: ...

@@ -475,3 +475,41 @@ IPC-2141 (division par √(Er+1.41) et logarithme népérien) et de la vitesse
 de propagation (0.2998 mm/ps) s'applique aussi à l'Oracle d'œil : une piste
 0.25 mm sur 0.2 mm de prépreg affiche désormais ≈ 60 Ω (valeur réaliste) et
 les délais/skews sont en picosecondes exactes.
+
+## 12. Endpoints additifs (hors contrat figé §2) — modèle RL et routage interactif (v0.4)
+
+### Modèle RL (PyTorch) — inspection et rechargement à chaud
+
+| Route | Rôle |
+|---|---|
+| `GET /api/v1/ai/model` | état détaillé du modèle RL embarqué |
+| `POST /api/v1/ai/model/reload` | recharge le checkpoint **sans redémarrer** le moteur |
+
+`GET /ai/model` répond : `loaded`, `device` (`cpu`/`cuda`/`none`),
+`checkpoint_path`, `checkpoint_mtime` (ISO-8601), `size_bytes`,
+`in_channels`, `n_actions`, `param_count`, `torch_available`, `strategy`
+(`rl` si un checkpoint est chargé, sinon `astar`). Le service reste
+entièrement opérationnel sans torch ni checkpoint : `strategy=astar`.
+
+`POST /ai/model/reload` accepte un corps optionnel
+`{"checkpoint_path": "…"}` (absolu ou relatif à la racine ai-engine) ;
+sans corps, le checkpoint courant est rechargé (flux nominal après
+ré-entraînement). En cas d'échec, **le modèle précédent est conservé** et
+le message explique ce qui s'est passé — le repli A* n'est jamais perdu.
+
+Côté gRPC, deux RPC **additives** au service `yahriacad.pcb.v1.AIRouterService`
+(les messages et RPC existants restent inchangés) :
+
+- `rpc GetModelInfo(ModelInfoRequest) returns (ModelInfo);`
+- `rpc ReloadModel(ReloadModelRequest) returns (ReloadModelResponse);`
+
+Stubs Go + Python régénérés depuis `shared/types/pcb.proto` (la commande
+`make proto` avec `protoc-gen-go`/`protoc-gen-go-grpc` installés).
+
+### Routage interactif au net
+
+Aucun endpoint nouveau : le routage interactif réutilise le contrat du job
+de routage `POST /api/v1/projects/{id}/route` avec `nets` réduit à un seul
+nom et `strategy` au choix (`astar` par défaut depuis l'éditeur, `rl` quand
+le modèle est chargé). Le bouton ⚡ de la liste des nets de l'éditeur PCB
+démarrer le job, suit son état puis rafraîchit le layout.

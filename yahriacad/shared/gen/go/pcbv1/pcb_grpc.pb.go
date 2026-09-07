@@ -35,6 +35,8 @@ const (
 	AIRouterService_PlanPlacement_FullMethodName  = "/yahriacad.pcb.v1.AIRouterService/PlanPlacement"
 	AIRouterService_RouteBoard_FullMethodName     = "/yahriacad.pcb.v1.AIRouterService/RouteBoard"
 	AIRouterService_OptimizeRoutes_FullMethodName = "/yahriacad.pcb.v1.AIRouterService/OptimizeRoutes"
+	AIRouterService_GetModelInfo_FullMethodName   = "/yahriacad.pcb.v1.AIRouterService/GetModelInfo"
+	AIRouterService_ReloadModel_FullMethodName    = "/yahriacad.pcb.v1.AIRouterService/ReloadModel"
 )
 
 // AIRouterServiceClient is the client API for AIRouterService service.
@@ -50,6 +52,10 @@ type AIRouterServiceClient interface {
 	RouteBoard(ctx context.Context, in *RouteRequest, opts ...grpc.CallOption) (AIRouterService_RouteBoardClient, error)
 	// Optimisation post-routage (rip-up & reroute ciblé, réduction de vias).
 	OptimizeRoutes(ctx context.Context, in *OptimizeRequest, opts ...grpc.CallOption) (AIRouterService_OptimizeRoutesClient, error)
+	// État détaillé du modèle RL (PyTorch) embarqué dans le moteur.
+	GetModelInfo(ctx context.Context, in *ModelInfoRequest, opts ...grpc.CallOption) (*ModelInfo, error)
+	// Recharge le modèle RL à chaud, sans redémarrer le service.
+	ReloadModel(ctx context.Context, in *ReloadModelRequest, opts ...grpc.CallOption) (*ReloadModelResponse, error)
 }
 
 type aIRouterServiceClient struct {
@@ -146,6 +152,26 @@ func (x *aIRouterServiceOptimizeRoutesClient) Recv() (*ProgressEvent, error) {
 	return m, nil
 }
 
+func (c *aIRouterServiceClient) GetModelInfo(ctx context.Context, in *ModelInfoRequest, opts ...grpc.CallOption) (*ModelInfo, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ModelInfo)
+	err := c.cc.Invoke(ctx, AIRouterService_GetModelInfo_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *aIRouterServiceClient) ReloadModel(ctx context.Context, in *ReloadModelRequest, opts ...grpc.CallOption) (*ReloadModelResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ReloadModelResponse)
+	err := c.cc.Invoke(ctx, AIRouterService_ReloadModel_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AIRouterServiceServer is the server API for AIRouterService service.
 // All implementations must embed UnimplementedAIRouterServiceServer
 // for forward compatibility
@@ -159,6 +185,10 @@ type AIRouterServiceServer interface {
 	RouteBoard(*RouteRequest, AIRouterService_RouteBoardServer) error
 	// Optimisation post-routage (rip-up & reroute ciblé, réduction de vias).
 	OptimizeRoutes(*OptimizeRequest, AIRouterService_OptimizeRoutesServer) error
+	// État détaillé du modèle RL (PyTorch) embarqué dans le moteur.
+	GetModelInfo(context.Context, *ModelInfoRequest) (*ModelInfo, error)
+	// Recharge le modèle RL à chaud, sans redémarrer le service.
+	ReloadModel(context.Context, *ReloadModelRequest) (*ReloadModelResponse, error)
 	mustEmbedUnimplementedAIRouterServiceServer()
 }
 
@@ -177,6 +207,12 @@ func (UnimplementedAIRouterServiceServer) RouteBoard(*RouteRequest, AIRouterServ
 }
 func (UnimplementedAIRouterServiceServer) OptimizeRoutes(*OptimizeRequest, AIRouterService_OptimizeRoutesServer) error {
 	return status.Errorf(codes.Unimplemented, "method OptimizeRoutes not implemented")
+}
+func (UnimplementedAIRouterServiceServer) GetModelInfo(context.Context, *ModelInfoRequest) (*ModelInfo, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetModelInfo not implemented")
+}
+func (UnimplementedAIRouterServiceServer) ReloadModel(context.Context, *ReloadModelRequest) (*ReloadModelResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ReloadModel not implemented")
 }
 func (UnimplementedAIRouterServiceServer) mustEmbedUnimplementedAIRouterServiceServer() {}
 
@@ -269,6 +305,42 @@ func (x *aIRouterServiceOptimizeRoutesServer) Send(m *ProgressEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _AIRouterService_GetModelInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ModelInfoRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AIRouterServiceServer).GetModelInfo(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AIRouterService_GetModelInfo_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AIRouterServiceServer).GetModelInfo(ctx, req.(*ModelInfoRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AIRouterService_ReloadModel_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ReloadModelRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AIRouterServiceServer).ReloadModel(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AIRouterService_ReloadModel_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AIRouterServiceServer).ReloadModel(ctx, req.(*ReloadModelRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AIRouterService_ServiceDesc is the grpc.ServiceDesc for AIRouterService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -283,6 +355,14 @@ var AIRouterService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "PlanPlacement",
 			Handler:    _AIRouterService_PlanPlacement_Handler,
+		},
+		{
+			MethodName: "GetModelInfo",
+			Handler:    _AIRouterService_GetModelInfo_Handler,
+		},
+		{
+			MethodName: "ReloadModel",
+			Handler:    _AIRouterService_ReloadModel_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

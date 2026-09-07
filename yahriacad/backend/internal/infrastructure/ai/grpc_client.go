@@ -104,6 +104,54 @@ func (c *Client) EngineInfo(ctx context.Context) (layoutapp.EngineInfo, error) {
 	return info, nil
 }
 
+// ModelInfo reports the detailed state of the embedded RL model
+// (GetModelInfo RPC): checkpoint, device, architecture, repli A*.
+func (c *Client) ModelInfo(ctx context.Context) (layoutapp.ModelInfo, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	resp, err := c.stub.GetModelInfo(ctx, &pcbv1.ModelInfoRequest{})
+	if err != nil {
+		return layoutapp.ModelInfo{}, c.mapError(err, "model_info")
+	}
+	return layoutapp.ModelInfo{
+		Loaded:          resp.GetLoaded(),
+		Device:          resp.GetDevice(),
+		CheckpointPath:  resp.GetCheckpointPath(),
+		CheckpointMtime: resp.GetCheckpointMtime(),
+		SizeBytes:       resp.GetSizeBytes(),
+		InChannels:      resp.GetInChannels(),
+		NActions:        resp.GetNActions(),
+		ParamCount:      resp.GetParamCount(),
+		TorchAvailable:  resp.GetTorchAvailable(),
+		Strategy:        resp.GetStrategy(),
+	}, nil
+}
+
+// ReloadModel hot-reloads the RL checkpoint (ReloadModel RPC). An empty
+// checkpointPath reuses the path currently resolved engine-side; the
+// returned message is the engine's own account of what happened.
+func (c *Client) ReloadModel(ctx context.Context, checkpointPath string) (layoutapp.ModelInfo, string, error) {
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	resp, err := c.stub.ReloadModel(ctx, &pcbv1.ReloadModelRequest{CheckpointPath: checkpointPath})
+	if err != nil {
+		return layoutapp.ModelInfo{}, "", c.mapError(err, "reload_model")
+	}
+	info := layoutapp.ModelInfo{
+		Loaded:          resp.GetInfo().GetLoaded(),
+		Device:          resp.GetInfo().GetDevice(),
+		CheckpointPath:  resp.GetInfo().GetCheckpointPath(),
+		CheckpointMtime: resp.GetInfo().GetCheckpointMtime(),
+		SizeBytes:       resp.GetInfo().GetSizeBytes(),
+		InChannels:      resp.GetInfo().GetInChannels(),
+		NActions:        resp.GetInfo().GetNActions(),
+		ParamCount:      resp.GetInfo().GetParamCount(),
+		TorchAvailable:  resp.GetInfo().GetTorchAvailable(),
+		Strategy:        resp.GetInfo().GetStrategy(),
+	}
+	return info, resp.GetMessage(), nil
+}
+
 // PlanPlacement asks the engine for component positions and maps them back
 // onto the board components by reference designator.
 func (c *Client) PlanPlacement(ctx context.Context, b *domainlayout.Board,

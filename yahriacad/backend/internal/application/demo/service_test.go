@@ -23,6 +23,14 @@ func (routeAllAI) EngineInfo(ctx context.Context) (layoutapp.EngineInfo, error) 
 	return layoutapp.EngineInfo{Status: "ok", Device: "cpu", ModelLoaded: true}, nil
 }
 
+func (routeAllAI) ModelInfo(ctx context.Context) (layoutapp.ModelInfo, error) {
+	return layoutapp.ModelInfo{Loaded: true, Device: "cpu", Strategy: "rl"}, nil
+}
+
+func (routeAllAI) ReloadModel(ctx context.Context, checkpointPath string) (layoutapp.ModelInfo, string, error) {
+	return layoutapp.ModelInfo{Loaded: true, Device: "cpu", Strategy: "rl"}, "modèle rechargé", nil
+}
+
 func (routeAllAI) PlanPlacement(ctx context.Context, b *domainlayout.Board,
 	comps []domainschematic.Component, strategy string) ([]domainlayout.PlacedComponent, error) {
 	return nil, layoutapp.ErrAIUnreachable

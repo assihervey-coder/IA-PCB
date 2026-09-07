@@ -34,10 +34,28 @@ type EngineInfo struct {
 	ModelLoaded bool   `json:"model_loaded"`
 }
 
+// ModelInfo is the detailed report of the embedded RL model (GetModelInfo
+// RPC): checkpoint en cours, dispositif d'inférence, architecture du
+// réseau et repli éventuel sur le routage déterministe A*.
+type ModelInfo struct {
+	Loaded          bool   `json:"loaded"`
+	Device          string `json:"device"`
+	CheckpointPath  string `json:"checkpoint_path"`
+	CheckpointMtime string `json:"checkpoint_mtime"`
+	SizeBytes       int64  `json:"size_bytes"`
+	InChannels      int32  `json:"in_channels"`
+	NActions        int32  `json:"n_actions"`
+	ParamCount      int64  `json:"param_count"`
+	TorchAvailable  bool   `json:"torch_available"`
+	Strategy        string `json:"strategy"`
+}
+
 // AIService is the port toward the AI engine ( YahriaCad ai-engine, gRPC).
 type AIService interface {
 	Health(ctx context.Context) error
 	EngineInfo(ctx context.Context) (EngineInfo, error)
+	ModelInfo(ctx context.Context) (ModelInfo, error)
+	ReloadModel(ctx context.Context, checkpointPath string) (ModelInfo, string, error)
 	PlanPlacement(ctx context.Context, b *domainlayout.Board, comps []domainschematic.Component,
 		strategy string) ([]domainlayout.PlacedComponent, error)
 	RouteBoard(ctx context.Context, b *domainlayout.Board, nets []domainschematic.Net,

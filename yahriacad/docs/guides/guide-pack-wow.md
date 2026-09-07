@@ -76,6 +76,40 @@ Historique de voyage dans le temps du design :
   `POST .../snapshots/{sid}/restore`.
 - UI : bouton **🕰 Historique**.
 
+### 1.5 Routage interactif au net — « cliquer et router »
+
+Là où les EDA demandent de configurer un job de routage complet, YahriaCad
+route **un seul net à la demande**, directement depuis l'éditeur :
+
+- Liste des nets (panneau latéral de l'éditeur PCB) : bouton **⚡** par net
+  → `POST /api/v1/projects/{id}/route` avec `{"strategy":"astar",
+  "nets":["NET"]}`. Le moteur respecte les règles de **classe de nets**
+  (largeur, dégagement) et le backend persiste la carte, en un job
+  suivi (REST + WebSocket), suivi par sondage puis rafraîchissement
+  automatique du layout.
+- Le routage complet reste disponible dans la page **Routage IA** :
+  sélection de la stratégie A*/RL + filtre multi-nets + journal temps réel.
+
+### 1.6 Modèle RL (PyTorch) — inspection et rechargement à chaud
+
+La plateforme embarque un routeur RL PPO (PyTorch) : tant qu'aucun
+checkpoint n'est chargé, le moteur replie sur A* déterministe — mais
+l'expert garde la main sur le modèle :
+
+- `GET /api/v1/ai/model` — état détaillé du modèle : chargé ou non,
+  device d'inférence (`cpu`/`cuda`/`none`), chemin + horodatage + taille du
+  checkpoint, architecture (canaux d'observation, actions), nombre de
+  paramètres, disponibilité de torch, stratégie effective (`rl`/`astar`).
+- `POST /api/v1/ai/model/reload` — **rechargement à chaud** du checkpoint,
+  sans redémarrer le moteur ni le backend. Corps optionnel
+  `{"checkpoint_path": "…"}` pour basculer sur un autre `.pt` (flux nominal
+  après `make train-router`). En cas d'échec, le modèle précédent est
+  conservé et le repli A* reste actif — le moteur ne perd jamais la main.
+- RPC gRPC correspondantes dans le contrat (additif) :
+  `GetModelInfo` / `ReloadModel` (`yahriacad.pcb.v1`).
+- UI : panneau **Modèle RL (PyTorch)** dans la page Routage IA — badge
+  chargé/absent, device, paramètres, bouton **⟳ Recharger le modèle**.
+
 ## 2. Good to have
 
 ### 2.1 Statistiques live

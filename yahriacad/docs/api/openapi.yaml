@@ -80,6 +80,81 @@ paths:
                 ai_engine: ok
                 database: postgres
 
+  /api/v1/ai/model:
+    get:
+      tags: [AI]
+      summary: État détaillé du modèle RL (PyTorch) embarqué
+      description: |
+        Checkpoint en cours, device d'inférence, architecture du réseau et
+        stratégie effective. Sans torch ni checkpoint, le service répond
+        `loaded=false`, `device=none`, `strategy=astar` (repli déterministe).
+      operationId: getAIModel
+      responses:
+        '200':
+          description: État du modèle
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loaded: { type: boolean }
+                  device: { type: string, enum: [cpu, cuda, none] }
+                  checkpoint_path: { type: string }
+                  checkpoint_mtime: { type: string }
+                  size_bytes: { type: integer, format: int64 }
+                  in_channels: { type: integer }
+                  n_actions: { type: integer }
+                  param_count: { type: integer, format: int64 }
+                  torch_available: { type: boolean }
+                  strategy: { type: string, enum: [rl, astar] }
+              example:
+                loaded: false
+                device: cpu
+                checkpoint_path: ""
+                checkpoint_mtime: ""
+                size_bytes: 0
+                in_channels: 5
+                n_actions: 12
+                param_count: 0
+                torch_available: false
+                strategy: astar
+        '503':
+          description: Moteur IA injoignable
+
+  /api/v1/ai/model/reload:
+    post:
+      tags: [AI]
+      summary: Rechargement à chaud du checkpoint RL
+      description: |
+        Recharge le checkpoint sans redémarrer le moteur. Corps optionnel
+        `{"checkpoint_path": "…"}` pour basculer sur un autre `.pt` ;
+        sans corps, le checkpoint courant est rechargé. En cas d'échec, le
+        modèle précédent est conservé et le repli A* reste actif.
+      operationId: reloadAIModel
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                checkpoint_path: { type: string }
+      responses:
+        '200':
+          description: Compte rendu du rechargement
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  loaded: { type: boolean }
+                  message: { type: string }
+                  info:
+                    type: object
+                    description: Même forme que GET /api/v1/ai/model
+        '503':
+          description: Moteur IA injoignable
+
   /api/v1/projects:
     get:
       tags: [Projects]

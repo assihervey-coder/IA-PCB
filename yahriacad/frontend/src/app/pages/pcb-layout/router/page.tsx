@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isBackendDown } from "@/lib/api/rest-client";
-import type { AIStrategy, JobStatus, ProgressEvent, RouteNetResult } from "@/lib/api/types";
+import type { AIStrategy, AIModelInfo, JobStatus, ProgressEvent, RouteNetResult } from "@/lib/api/types";
 import { ProgressSocket, type SocketStatus } from "@/lib/api/ws-client";
 import { useProjectStore } from "@/lib/store/project-store";
 import { useUIStore } from "@/lib/store/ui-store";
@@ -58,6 +58,8 @@ export default function RouterPage() {
   const [logs, setLogs] = useState<LogLine[]>([]);
   const [socketStatus, setSocketStatus] = useState<SocketStatus | null>(null);
   const [starting, setStarting] = useState(false);
+  const [modelInfo, setModelInfo] = useState<AIModelInfo | null>(null);
+  const [reloadingModel, setReloadingModel] = useState(false);
 
   const socketRef = useRef<ProgressSocket | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -81,6 +83,37 @@ export default function RouterPage() {
       void loadDemoData();
     }
   }, [openProject, loadDemoData]);
+
+  // État du modèle RL (PyTorch) : chargé ? device ? stratégie effective ?
+  const refreshModelInfo = useCallback(async () => {
+    try {
+      setModelInfo(await api.getAIModel());
+    } catch {
+      setModelInfo(null); // backend injoignable : panneau discret, pas d'erreur bloquante
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshModelInfo();
+  }, [refreshModelInfo]);
+
+  const handleReloadModel = useCallback(async () => {
+    if (reloadingModel) return;
+    setReloadingModel(true);
+    try {
+      const res = await api.reloadAIModel();
+      setModelInfo(res.info);
+      pushToast(res.message || "Modèle RL rechargé.", "success");
+    } catch (err) {
+      if (isBackendDown(err)) {
+        pushToast("Backend injoignable — rechargement impossible.", "error");
+      } else {
+        pushToast("Échec du rechargement du modèle RL.", "error");
+      }
+    } finally {
+      setReloadingModel(false);
+    }
+  }, [reloadingModel, pushToast]);
 
   /** Ajoute une ligne de journal + met à jour le job + capture les résultats partiels. */
   const handleEvent = useCallback(
@@ -376,6 +409,49 @@ export default function RouterPage() {
                 Aucun net disponible : ouvrez un projet ou importez un fichier.
               </p>
             ) : null}
+          </div>
+
+          <div className="side-box panel" data-testid="model-panel">
+            <h3 className="panel-title">Modèle RL (PyTorch)</h3>
+            {modelInfo ? (
+              <div style={{ fontSize: 12, display: "grid", gap: 4 }}>
+                <span>
+                  <span
+                    className="net-dot"
+                    style={{ background: modelInfo.loaded ? "#4ADE80" : "#F87171", display: "inline-block", marginRight: 6 }}
+                  />
+                  {modelInfo.loaded
+                    ? `Checkpoint chargé — stratégie « ${modelInfo.strategy} »`
+                    : "Aucun checkpoint — repli A* déterministe"}
+                </span>
+                <span className="muted">Device : {modelInfo.device}{modelInfo.torch_available ? "" : " (torch absent)"}</span>
+                {modelInfo.param_count > 0 ? (
+                  <span className="muted">
+                    {modelInfo.param_count.toLocaleString("fr-FR")} paramètres · obs {modelInfo.in_channels}ch ×{" "}
+                    {modelInfo.n_actions} actions
+                  </span>
+                ) : null}
+                {modelInfo.checkpoint_mtime ? (
+                  <span className="muted">Checkpoint : {modelInfo.checkpoint_mtime.replace("T", " ").replace("+00:00", " UTC")}</span>
+                ) : null}
+                <div style={{ marginTop: 6 }}>
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    data-testid="model-reload-btn"
+                    onClick={() => void handleReloadModel()}
+                    disabled={reloadingModel}
+                    title="Recharge le checkpoint sans redémarrer le moteur (utile après un ré-entraînement)"
+                  >
+                    {reloadingModel ? "Rechargement…" : "⟳ Recharger le modèle"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <p className="muted" style={{ fontSize: 12 }}>
+                Moteur IA injoignable : routage A* local et démonstration uniquement.
+              </p>
+            )}
           </div>
 
           <div className="side-box panel">

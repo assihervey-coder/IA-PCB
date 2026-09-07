@@ -175,6 +175,7 @@ export default function PcbLayoutPage() {
   const [showStats, setShowStats] = useState(false);
   const [showImpedance, setShowImpedance] = useState(false);
   const [autoFix, setAutoFix] = useState<AutoFixResult | null>(null);
+  const [routingNet, setRoutingNet] = useState<string | null>(null);
 
   // Édition collaborative CRDT (outbox offline + WS + undo/redo serveur).
   const crdt = useCrdt(projectId, demoMode);
@@ -510,6 +511,46 @@ export default function PcbLayoutPage() {
     }
   };
 
+  const handleRouteNet = async (netName: string) => {
+    if (routingNet || busyAction) return;
+    if (!projectId) {
+      pushToast("Mode démo : le routage interactif nécessite un projet ouvert (backend).", "info");
+      return;
+    }
+    setRoutingNet(netName);
+    try {
+      pushHistory();
+      const started = await api.startRoute(projectId, { strategy: "astar", nets: [netName] });
+      // Suivi du job en poll REST (800 ms, plafond 60 s) puis rafraîchissement.
+      const deadline = Date.now() + 60_000;
+      let state = "running";
+      let message = "";
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 800));
+        const job = await api.getJob(projectId, started.job_id);
+        state = job.state;
+        message = job.message || message;
+        if (state === "done" || state === "failed" || state === "cancelled") break;
+      }
+      await refreshLayout(projectId);
+      if (state === "done") {
+        pushToast(`Net « ${netName} » routé par l'IA.`, "success");
+      } else if (state === "failed") {
+        pushToast(`Routage du net « ${netName} » échoué${message ? ` : ${message}` : ""}.`, "error");
+      } else {
+        pushToast(`Routage du net « ${netName} » toujours en cours — vérifiez la page Routage IA.`, "info");
+      }
+    } catch (err) {
+      if (isBackendDown(err)) {
+        pushToast("Backend injoignable — routage interactif indisponible.", "error");
+      } else {
+        pushToast(`Échec du routage interactif du net « ${netName} ».`, "error");
+      }
+    } finally {
+      setRoutingNet(null);
+    }
+  };
+
   const handleSave = async () => {
     const data = useProjectStore.getState().layout;
     if (!projectId || !data || busyAction) return;
@@ -773,6 +814,19 @@ export default function PcbLayoutPage() {
                   <span className="net-dot" style={{ background: colorForNet(net.name) }} />
                   <span className="net-name">{net.name}</span>
                   <span className="net-count">{net.pad_count} pads</span>
+                  <button
+                    type="button"
+                    className="net-route-btn"
+                    data-testid={`route-net-${net.name}`}
+                    disabled={routingNet !== null || busyAction !== null}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleRouteNet(net.name);
+                    }}
+                    title="Router uniquement ce net avec l'IA (A*, contraintes de classe appliquées)"
+                  >
+                    {routingNet === net.name ? "…" : "⚡"}
+                  </button>
                 </li>
               ))}
             </ul>

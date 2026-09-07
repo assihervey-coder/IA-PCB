@@ -239,6 +239,14 @@ détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/arc
 | 👥✏️ Éditeur CRDT (frontend) | page `pcb-layout` | les mutations de composants partent en opérations CRDT (LWW + Lamport) : **outbox persistante hors ligne** (localStorage), rattrapage automatique à la reconnexion, déduplication par op id, undo/redo **persistants côté serveur** (Ctrl+Z), barre d'état + flux d'activité distants ; les curseurs des pairs restent gérés par la couche présence |
 | 🔬 Physique corrigée | Oracle d'œil + impédance | formule microstrip IPC-2141 réparée (`87/√(Er+1.41)·ln(…)`), vitesse de propagation 0.2998 mm/ps : Z0 réalistes (0.25 mm → ≈ 60 Ω) et délais/skews en picosecondes exactes |
 
+## Extensions v0.4 — routage interactif, modèle RL à chaud
+
+| Fonction | Où | Description |
+|---|---|---|
+| ⚡ Routage interactif au net | éditeur PCB, bouton ⚡ par net | route **un seul net à la demande** (`POST .../route {"nets":["NET"]}`) : règles de classe appliquées, job suivi puis layout rafraîchi automatiquement — sans quitter l'éditeur |
+| 🤖 Modèle RL (PyTorch) pilotable | `GET/POST /api/v1/ai/model[/reload]` + panneau « Modèle RL » | état détaillé du checkpoint (device, paramètres, horodatage, stratégie effective) et **rechargement à chaud** — basculez sur un `.pt` fraîchement entraîné (`make train-router`) sans redémarrer le moteur ; en cas d'échec le modèle précédent et le repli A* sont conservés |
+| 🔌 Contrat gRPC étendu (additif) | `yahriacad.pcb.v1` | deux nouvelles RPC `GetModelInfo` / `ReloadModel`, messages existants inchangés ; stubs Go + Python régénérés (`make proto`) |
+
 ## Documentation
 
 - [`docs/architecture/contracts.md`](docs/architecture/contracts.md) — contrats d'interface (source de vérité)

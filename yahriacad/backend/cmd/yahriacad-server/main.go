@@ -61,6 +61,14 @@ func (unreachableAI) EngineInfo(context.Context) (layoutapp.EngineInfo, error) {
 	return layoutapp.EngineInfo{}, layoutapp.ErrAIUnreachable
 }
 
+func (unreachableAI) ModelInfo(context.Context) (layoutapp.ModelInfo, error) {
+	return layoutapp.ModelInfo{}, layoutapp.ErrAIUnreachable
+}
+
+func (unreachableAI) ReloadModel(context.Context, string) (layoutapp.ModelInfo, string, error) {
+	return layoutapp.ModelInfo{}, "", layoutapp.ErrAIUnreachable
+}
+
 func (unreachableAI) PlanPlacement(context.Context, *domainlayout.Board,
 	[]domainschematic.Component, string) ([]domainlayout.PlacedComponent, error) {
 	return nil, layoutapp.ErrAIUnreachable

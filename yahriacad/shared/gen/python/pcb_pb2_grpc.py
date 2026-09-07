@@ -59,6 +59,16 @@ class AIRouterServiceStub:
                 request_serializer=pcb__pb2.OptimizeRequest.SerializeToString,
                 response_deserializer=pcb__pb2.ProgressEvent.FromString,
                 _registered_method=True)
+        self.GetModelInfo = channel.unary_unary(
+                '/yahriacad.pcb.v1.AIRouterService/GetModelInfo',
+                request_serializer=pcb__pb2.ModelInfoRequest.SerializeToString,
+                response_deserializer=pcb__pb2.ModelInfo.FromString,
+                _registered_method=True)
+        self.ReloadModel = channel.unary_unary(
+                '/yahriacad.pcb.v1.AIRouterService/ReloadModel',
+                request_serializer=pcb__pb2.ReloadModelRequest.SerializeToString,
+                response_deserializer=pcb__pb2.ReloadModelResponse.FromString,
+                _registered_method=True)
 
 
 class AIRouterServiceServicer:
@@ -98,6 +108,20 @@ class AIRouterServiceServicer:
         context.set_details('Method not implemented!')
         raise NotImplementedError('Method not implemented!')
 
+    def GetModelInfo(self, request, context):
+        """État détaillé du modèle RL (PyTorch) embarqué dans le moteur.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
+    def ReloadModel(self, request, context):
+        """Recharge le modèle RL à chaud, sans redémarrer le service.
+        """
+        context.set_code(grpc.StatusCode.UNIMPLEMENTED)
+        context.set_details('Method not implemented!')
+        raise NotImplementedError('Method not implemented!')
+
 
 def add_AIRouterServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
@@ -120,6 +144,16 @@ def add_AIRouterServiceServicer_to_server(servicer, server):
                     servicer.OptimizeRoutes,
                     request_deserializer=pcb__pb2.OptimizeRequest.FromString,
                     response_serializer=pcb__pb2.ProgressEvent.SerializeToString,
+            ),
+            'GetModelInfo': grpc.unary_unary_rpc_method_handler(
+                    servicer.GetModelInfo,
+                    request_deserializer=pcb__pb2.ModelInfoRequest.FromString,
+                    response_serializer=pcb__pb2.ModelInfo.SerializeToString,
+            ),
+            'ReloadModel': grpc.unary_unary_rpc_method_handler(
+                    servicer.ReloadModel,
+                    request_deserializer=pcb__pb2.ReloadModelRequest.FromString,
+                    response_serializer=pcb__pb2.ReloadModelResponse.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -235,6 +269,60 @@ class AIRouterService:
             '/yahriacad.pcb.v1.AIRouterService/OptimizeRoutes',
             pcb__pb2.OptimizeRequest.SerializeToString,
             pcb__pb2.ProgressEvent.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def GetModelInfo(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yahriacad.pcb.v1.AIRouterService/GetModelInfo',
+            pcb__pb2.ModelInfoRequest.SerializeToString,
+            pcb__pb2.ModelInfo.FromString,
+            options,
+            channel_credentials,
+            insecure,
+            call_credentials,
+            compression,
+            wait_for_ready,
+            timeout,
+            metadata,
+            _registered_method=True)
+
+    @staticmethod
+    def ReloadModel(request,
+            target,
+            options=(),
+            channel_credentials=None,
+            call_credentials=None,
+            insecure=False,
+            compression=None,
+            wait_for_ready=None,
+            timeout=None,
+            metadata=None):
+        return grpc.experimental.unary_unary(
+            request,
+            target,
+            '/yahriacad.pcb.v1.AIRouterService/ReloadModel',
+            pcb__pb2.ReloadModelRequest.SerializeToString,
+            pcb__pb2.ReloadModelResponse.FromString,
             options,
             channel_credentials,
             insecure,

@@ -177,6 +177,39 @@ message HealthResponse {
 }
 
 // --------------------------------------------------------------
+// Modèle RL (PyTorch) — inspection et rechargement à chaud
+// --------------------------------------------------------------
+
+message ModelInfoRequest {}
+
+// État détaillé du modèle RL embarqué : dispositif d'inférence,
+// checkpoint associé, architecture et repli éventuel sur A*.
+message ModelInfo {
+  bool   loaded           = 1;  // checkpoint chargé et utilisable
+  string device           = 2;  // "cpu" | "cuda" | "none" (sans torch)
+  string checkpoint_path  = 3;  // chemin du fichier .pt (vide si absent)
+  string checkpoint_mtime = 4;  // horodatage ISO-8601 du checkpoint (vide si absent)
+  int64  size_bytes       = 5;  // taille du checkpoint (0 si absent)
+  int32  in_channels      = 6;  // canaux d'observation attendus
+  int32  n_actions        = 7;  // taille de l'espace d'actions
+  int64  param_count      = 8;  // nombre de paramètres entraînables
+  bool   torch_available  = 9;  // torch importable dans l'environnement
+  string strategy         = 10; // "rl" | "astar" (repli déterministe)
+}
+
+message ReloadModelRequest {
+  // Chemin optionnel d'un autre checkpoint (.pt). Vide : recharge le
+  // chemin résolu actuellement (utile après un ré-entraînement).
+  string checkpoint_path = 1;
+}
+
+message ReloadModelResponse {
+  bool      loaded  = 1;
+  string    message = 2; // compte rendu lisible (français)
+  ModelInfo info    = 3;
+}
+
+// --------------------------------------------------------------
 // Service IA exposé par ai-engine (Python) et consommé par le
 // backend Go via infrastructure/ai/grpc_client.go
 // --------------------------------------------------------------
@@ -194,4 +227,10 @@ service AIRouterService {
 
   // Optimisation post-routage (rip-up & reroute ciblé, réduction de vias).
   rpc OptimizeRoutes(OptimizeRequest) returns (stream ProgressEvent);
+
+  // État détaillé du modèle RL (PyTorch) embarqué dans le moteur.
+  rpc GetModelInfo(ModelInfoRequest) returns (ModelInfo);
+
+  // Recharge le modèle RL à chaud, sans redémarrer le service.
+  rpc ReloadModel(ReloadModelRequest) returns (ReloadModelResponse);
 }

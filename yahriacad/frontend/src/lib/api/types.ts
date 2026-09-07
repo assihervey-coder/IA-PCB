@@ -236,6 +236,26 @@ export interface RouteJobStart {
   nets?: string[];
 }
 
+/** État détaillé du modèle RL PyTorch embarqué dans le moteur IA (additif). */
+export interface AIModelInfo {
+  loaded: boolean;
+  device: string; // "cpu" | "cuda" | "none"
+  checkpoint_path: string;
+  checkpoint_mtime: string;
+  size_bytes: number;
+  in_channels: number;
+  n_actions: number;
+  param_count: number;
+  torch_available: boolean;
+  strategy: "rl" | "astar" | string;
+}
+
+export interface AIModelReloadResult {
+  loaded: boolean;
+  message: string;
+  info: AIModelInfo;
+}
+
 export interface JobStarted {
   job_id: string;
   project_id: string;

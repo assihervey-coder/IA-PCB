@@ -85,6 +85,10 @@ func NewRouter(d Deps) http.Handler {
 	// Démo « carte cauchemar » (tutoriel vivant Auto-Healer + Doctor).
 	mux.HandleFunc("POST /api/v1/demo/nightmare", d.handleDemoNightmare)
 
+	// Modèle RL (PyTorch) : inspection + rechargement à chaud (additif).
+	mux.HandleFunc("GET /api/v1/ai/model", d.handleAIModelInfo)
+	mux.HandleFunc("POST /api/v1/ai/model/reload", d.handleAIModelReload)
+
 	mux.HandleFunc("GET /api/v1/projects", d.handleListProjects)
 	mux.HandleFunc("POST /api/v1/projects", d.handleCreateProject)
 	mux.HandleFunc("GET /api/v1/projects/{id}", d.handleGetProject)

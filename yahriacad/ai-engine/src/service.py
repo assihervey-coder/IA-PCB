@@ -849,6 +849,105 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             self._log.exception("OptimizeRoutes failed")
             yield pb.ProgressEvent(stage="optimize", done=True, error=str(exc))
 
+    # ------------------------------------------------------- modèle RL (PyTorch)
+
+    def _torch_available(self) -> bool:
+        """True when torch can be imported in this environment."""
+        try:
+            import torch  # noqa: F401 - probe only
+
+            return True
+        except Exception:
+            return False
+
+    def _checkpoint_stats(self) -> tuple[str, int]:
+        """Return (ISO mtime, size in bytes) of the resolved checkpoint.
+
+        Both values are empty/zero when the checkpoint file is absent.
+        """
+        if not self._model_path:
+            return "", 0
+        try:
+            stat = os.stat(self._model_path)
+            import datetime
+
+            mtime = datetime.datetime.fromtimestamp(
+                stat.st_mtime, tz=datetime.timezone.utc
+            ).isoformat(timespec="seconds")
+            return mtime, int(stat.st_size)
+        except OSError:
+            return "", 0
+
+    def _model_info(self) -> pb.ModelInfo:
+        """Build the detailed ModelInfo report of the embedded RL model."""
+        loaded = self._agent is not None
+        in_channels = int(getattr(self._agent, "in_channels", 0) or 0)
+        n_actions = int(getattr(self._agent, "n_actions", 0) or 0)
+        param_count = 0
+        if loaded:
+            try:
+                net = getattr(self._agent, "net", None)
+                if net is not None:
+                    param_count = int(sum(p.numel() for p in net.parameters()))
+            except Exception:  # pragma: no cover - defensive
+                param_count = 0
+        mtime, size = self._checkpoint_stats()
+        return pb.ModelInfo(
+            loaded=loaded,
+            device=self._device if self._torch_available() else "none",
+            checkpoint_path=self._model_path or "",
+            checkpoint_mtime=mtime,
+            size_bytes=size,
+            in_channels=in_channels,
+            n_actions=n_actions,
+            param_count=param_count,
+            torch_available=self._torch_available(),
+            strategy="rl" if loaded else "astar",
+        )
+
+    def GetModelInfo(self, request, context) -> pb.ModelInfo:
+        """Report the detailed state of the embedded RL model (PyTorch)."""
+        return self._model_info()
+
+    def ReloadModel(self, request, context) -> pb.ReloadModelResponse:
+        """Hot-reload the RL router checkpoint, without restarting.
+
+        An optional ``checkpoint_path`` re-targets the service to another
+        ``.pt`` file (absolute or ai-engine relative). The previous agent is
+        kept when the reload fails, so the engine never loses its fallback
+        A* behaviour: worst case ``loaded`` simply stays False.
+        """
+        requested = str(request.checkpoint_path or "").strip()
+        if requested:
+            resolved = self._resolve_model_path(requested)
+            if resolved is None:
+                info = self._model_info()
+                return pb.ReloadModelResponse(
+                    loaded=self._agent is not None,
+                    message=f"Checkpoint introuvable : {requested} — modèle inchangé.",
+                    info=info,
+                )
+            self._model_path = resolved
+            self._log.info("ReloadModel: checkpoint cible = %s", resolved)
+
+        previous = self._agent
+        self._agent = self._load_rl_agent()
+        info = self._model_info()
+        if info.loaded:
+            message = f"Modèle RL rechargé depuis {info.checkpoint_path} ({info.param_count} paramètres)."
+        elif previous is not None:
+            # Reload failed -> restore the previously working agent.
+            self._agent = previous
+            info = self._model_info()
+            message = "Rechargement échoué — modèle précédent conservé."
+        else:
+            message = (
+                "Aucun modèle RL chargé (torch indisponible ou checkpoint "
+                "absent) — repli déterministe A* actif."
+            )
+        self._log.info("ReloadModel: %s", message)
+        return pb.ReloadModelResponse(loaded=self._agent is not None, message=message, info=info)
+
     # ------------------------------------------------------------ properties
 
     @property
