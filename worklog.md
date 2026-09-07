@@ -86,3 +86,24 @@ Stage Summary:
 - Décisions : RPC gRPC additives (messages existants intacts), checkpoint path surchargeable côté moteur, échec de reload non destructif
 - Dépôt GitHub : https://github.com/assihervey-coder/YahriaCad (main = aeb3f27, tag v0.1.0)
 - Sécurité : PAT toujours exposé dans l'historique de chat — révoquer le token GitHub (rappel récurrent)
+
+---
+Task ID: 5
+Agent: Super Z (main)
+Task: Réparer CI (AI Engine Python + Frontend Next.js) + benchmark Arena A* vs RL un clic + export ODB++
+
+Work Log:
+- CI Python : cause = requirements non épinglés -> pip résout grpcio-tools 1.71.2 (protobuf<6 force le backtrack) alors que les stubs committés venaient de 1.83.1/protobuf 7.35.1 ; fix = pin grpcio==1.71.2 + grpcio-tools==1.71.2 + protobuf>=5.29,<6, régénération des stubs Python+Go avec la toolchain épinglée, drift vérifié nul avec la même commande que CI
+- CI Frontend : cause = absence de postcss.config dans yahriacad/frontend -> Next.js remonte au postcss.config.mjs racine (template @tailwindcss/postcss) qui échoue en CI sans node_modules racine (le node_modules racine local masquait le bug) ; fix = postcss.config.mjs local plugins vides ; repro validé en renommant temporairement node_modules racine
+- Benchmark Arena : application/arena/benchmark.go (port AIEngine minimal, AttachAI, ErrModelNotLoaded, Benchmark = même carnet -> A* local runFighter + RL via RouteBoard stratégie rl avec ConstraintSet du projet, score arène identique, verdict + ELO pairwise refactorisé updateEloPair) ; REST POST .../arena/benchmark + DTO + 503 rl_model_not_loaded ; WS arena-benchmark-<pid> ; MagicBar bouton 🧪 A* vs RL (toast dédié si modèle absent) ; 3 tests
+- Fix démo latent : le schéma cauchemar ne déclarait AUCUN composant (nets seuls) -> ComponentByRef échouait -> arène/benchmark sans broches ; composants + broches ajoutés en miroir des empreintes board
+- Export ODB++ : writer/odbpp_writer.go (matrix, netlist UNIT/NET/SUBNET/NODE, general, symbols, features par couche pclkN : P pastilles traversant répétées, L segments µm, V vias d<drill>, components top/bottom) ; export/odbpp.go (ExportToDir/ExportToTgz tar+gzip chemins relatifs) ; REST GET .../export/odbpp (application/gzip + X-YahriaCad-File-Count) ; carte Export frontend + api.exportODBPP ; 3 tests ; OpenAPI + contracts §13 + README
+- Smoke réel complet : backend Go + moteur Python + torch CPU installé + checkpoint PPO entraîné (6 000 pas, 650 317 paramètres) puis chargé À CHAUD via POST /ai/model/reload (torch importé lazily, chemin explicite car résolu au démarrage avant existence du fichier) ; benchmark A* 146.0 mm score 592.70 vs RL 196.5 mm/10 vias score 49.72 — verdict astar + ELO 1212/1188 ; export ODB++ .tgz inspecté (8 fichiers, features µm correctes)
+- Piège : vieux process pré-rename (kidcad-server) tenait le port 8080 -> go run bind fail silencieux côté smoke ; trouvé via ss -tlnp et tué
+- Checkpoint .pt local ajouté au .gitignore (config : jamais commité)
+
+Stage Summary:
+- Livré : CI Python + Frontend réparées (2 causes racines documentées), benchmark A* vs RL opérationnel de bout en bout avec vrai moteur PyTorch, export ODB++ v8 simplifié complet (writer + service + REST + UI + tests)
+- Décisions : pin toolchain gRPC plutôt que diff normalisé ; benchmark exige checkpoint chargé (jamais A* vs A* déguisé) ; ODB++ simplifié assumé et documenté (contour/pours restent couverts par Gerber)
+- Dépôt : commit 9cfcade poussé sur github.com/assihervey-coder/YahriaCad — CI à surveiller (3 jobs attendus verts)
+- Sécurité : PAT toujours à révoquer (rappel récurrent)
