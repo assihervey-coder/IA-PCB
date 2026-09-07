@@ -20,6 +20,7 @@ import (
 // plus the default constraints applied when the source format carries none.
 type ImportResult struct {
 	Format      string // "kicad", "eagle", "interchange", "kicad-netlist", "protel-netlist"
+	FileVersion string // version du fichier source détectée ("KiCad 10", …)
 	Schematic   *domainschematic.Schematic
 	Board       *domainlayout.Board
 	Constraints *domainconstraints.ConstraintSet
@@ -88,6 +89,7 @@ func (s *ImportService) ImportFromFile(ctx context.Context, projectID, path stri
 	s.log.Info("import terminé",
 		"project_id", projectID,
 		"format", res.Format,
+		"file_version", res.FileVersion,
 		"components", components,
 		"nets", nets,
 		"warnings", len(res.Warnings))

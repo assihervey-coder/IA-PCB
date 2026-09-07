@@ -67,12 +67,13 @@ func (d *Deps) handleImport(w http.ResponseWriter, r *http.Request) {
 		warnings = []string{}
 	}
 	writeJSON(w, http.StatusOK, ImportResult{
-		Format:     res.Format,
-		Components: components,
-		Nets:       nets,
-		Tracks:     tracks,
-		Vias:       vias,
-		Warnings:   warnings,
+		Format:      res.Format,
+		FileVersion: res.FileVersion,
+		Components:  components,
+		Nets:        nets,
+		Tracks:      tracks,
+		Vias:        vias,
+		Warnings:    warnings,
 	})
 }
 

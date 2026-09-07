@@ -371,3 +371,22 @@ Stage Summary:
 - Import KiCad propre : pistes multi-points restaurées, colinéaires dédupliquées, topologie préservée ; round-trip toujours bit-fidèle en géométrie ; CI vert
 - 8 projets en ligne dont les 2 ROUNDTRIP de preuve
 - Restant : PAT GitHub à révoquer (sécurité) ; fusion éventuelle côté routeur A* (cosmétique symétrique)
+
+---
+Task ID: 16
+Agent: Super Z (main)
+Task: Import KiCad multi-versions 6→10 (demande user) — détection version, outline robuste, re-seed démos
+
+Work Log:
+- Diagnostic pic_programmer : fichier KiCad 10 (version 20260206, generator_version "10.0") ; nets référencés PAR NOM `(net "VCC")` sans déclaration racine ; le code HEAD parsait déjà les nets (111 nets/236 connexions en test Go) mais le contour Edge.Cuts en gr_line retombait sur le défaut 100x80 mm → composants hors grille de routage (cause réelle du « routage à vide » DEMO4)
+- kicad.go : kicadVersionTokens (20171130=5, 20211030/20211230=6, 20221206=7, 20240108=8, 20241229=9, 20260206=10) + kicadFileVersion (label/known) ; warning best-effort si version inconnue ; alias (module …) = KiCad 5 bonus ; précédence property > fp_text (KiCad 10 mélange les deux, 78 fp_text user + 63 property Reference) ; boardOutline réécrite : gr_rect/gr_line/gr_arc/gr_circle/gr_poly sur Edge.Cuts, bbox exacte (marge 1 mm tentée puis retirée : elle cassait la fidélité round-trip 40x30 du TestKicadWriterRoundTrip)
+- ImportResult.FileVersion (application/schematic/import.go) + log "import terminé" enrichi ; DTO REST ImportResult.file_version (omitempty) peuplé dans export_handler
+- Tests : fixtures v6 (fp_text), v7 (property + contour gr_line + via), v8 (embedded_image/table tolérés, pad anonyme, footprint au dos), version future 20990101 → best-effort, module v5, + TestKiCadRealBoardsLocal (skip CI si /tmp absentes ; complex_hierarchy 68c/52n, video 189c/588n, pic_programmer 63c/111n, contour >=155 mm) — 12 tests PASS, suite backend complète verte (go vet OK)
+- scripts/start_backend.sh : restart chirurgical backend (leçon Task 13-b : process lancé directement dans un appel bash = tué en fin de session — reproduit et confirmé, le backend direct a été tué ; via script il survit)
+- Re-seed complet des 5 démos après restart (repo mémoire vide) : DEMO4 pic_programmer 111 nets/KiCad 10, routage A* → done, layout 160.02x99.06 mm, 89→158 pistes, 6→350 vias (routage réel)
+- README.md : ligne "📥 Import KiCad 5→10" (mapping jetons, nets par nom v10, property/fp_text, contours, file_version)
+
+Stage Summary:
+- Import .kicad_pcb supporté pour KiCad 5, 6, 7, 8, 9, 10 + best-effort version future avec avertissement ; réponse d'import expose file_version
+- Bug outline gr_line corrigé : pic_programmer passe de 100x80 (défaut) à 160.02x99.06 mm et route réellement (A* done)
+- Backend live reconstruit et redémarré via script ; 5 démos en ligne (DEMO5 video routage long en cours à la rédaction)

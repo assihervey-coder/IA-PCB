@@ -278,6 +278,7 @@ détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/arc
 | 🔌 Contrat gRPC étendu (additif) | `yahriacad.pcb.v1` | deux nouvelles RPC `GetModelInfo` / `ReloadModel`, messages existants inchangés ; stubs Go + Python régénérés (`make proto`) |
 | 📦 Export ODB++ | `GET .../export/odbpp` + carte « Job ODB++ » | job ODB++ v8 simplifié en .tgz — matrix, netlist, features cuivre par couche (L/P/V), placements composants — le format d'échange des télématics (contracts §13) |
 | 🔄 Export KiCad | `GET .../export/kicad` | carte en `.kicad_pcb` s-expression (version fichier 20241229, pcbnew 9) — empreintes/pads/nets/pistes/vias/contour ; boucle le round-trip : carte KiCad importée → routée → rouvrable dans pcbnew |
+| 📥 Import KiCad 5→10 | `POST .../import` (`.kicad_pcb`) | lecture multi-versions : détection du jeton `(version …)` + `generator_version` (KiCad 6 = 20211030/20211230, 7 = 20221206, 8 = 20240108, 9 = 20241229, 10 = 20260206, 5 en bonus via `(module …)`) ; nets numérotés (≤ 9) **et** nets par nom sans déclaration racine (10), `property` vs `fp_text` (KiCad 10 mixe les deux, property prioritaire), contour Edge.Cuts quel que soit le tracé (`gr_rect`, `gr_line`, `gr_arc`, `gr_circle`, `gr_poly`) ; la réponse d'import expose `file_version` (« KiCad 10 ») et une version inconnue (future) est lue en best-effort avec avertissement |
 
 ## Prod hardening v0.6 — auth JWT, CORS strict, rate limit, métriques
 

@@ -53,7 +53,7 @@ seed_kicad() { # $1=nom $2=fichier $3=max_wait_route
     | python3 -c 'import sys,json; print(json.load(sys.stdin).get("id",""))' 2>/dev/null)
   [ -n "$PID" ] || { echo "  ! $1 : création projet KO"; return; }
   IMP=$(curl -s -X POST "$B/api/v1/projects/$PID/import" -H "$AUTH" -F "file=@$2;type=application/octet-stream" \
-    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(str(d.get("nets",d.get("message","?"))))' 2>/dev/null)
+    | python3 -c 'import sys,json; d=json.load(sys.stdin); print(str(d.get("nets","?"))+" nets/"+str(d.get("file_version","?")))' 2>/dev/null)
   NCOMP=$(curl -s --max-time 300 -X POST "$B/api/v1/projects/$PID/place" -H "$AUTH" -H 'Content-Type: application/json' -d '{"strategy":"astar"}' \
     | python3 -c 'import sys,json; print(len(json.load(sys.stdin).get("components",[])))' 2>/dev/null)
   JOB=$(curl -s -X POST "$B/api/v1/projects/$PID/route" -H "$AUTH" -H 'Content-Type: application/json' -d '{"strategy":"astar"}' \
@@ -74,7 +74,7 @@ echo "=== Projets en ligne ==="
 curl -s "$B/api/v1/projects" -H "$AUTH" | python3 -c '
 import sys, json
 for p in json.load(sys.stdin):
-    print(f"  {p.get(\"id\",\"?\")[:8]}  {p.get(\"name\",\"?\")}  [{p.get(\"state\",\"\")}]")
+    print("  {}  {}  [{}]".format(p.get("id","?")[:8], p.get("name","?"), p.get("status","")))
 '
 echo ""
 echo "Ouvrir : http://localhost:3000/pages/project-manager"

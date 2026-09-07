@@ -187,12 +187,13 @@ type ERCResult struct {
 
 // ImportResult is the response of POST .../import.
 type ImportResult struct {
-	Format     string   `json:"format"`
-	Components int      `json:"components"`
-	Nets       int      `json:"nets"`
-	Tracks     int      `json:"tracks"`
-	Vias       int      `json:"vias"`
-	Warnings   []string `json:"warnings"`
+	Format      string   `json:"format"`
+	FileVersion string   `json:"file_version,omitempty"` // ex. "KiCad 10"
+	Components  int      `json:"components"`
+	Nets        int      `json:"nets"`
+	Tracks      int      `json:"tracks"`
+	Vias        int      `json:"vias"`
+	Warnings    []string `json:"warnings"`
 }
 
 // ExportFile describes one produced file.
