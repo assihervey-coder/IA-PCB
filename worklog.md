@@ -172,3 +172,20 @@ Work Log:
 Stage Summary:
 - VERDICT : app réellement fonctionnelle de bout en bout (backend + IA + frontend), preuve live 15/15 + 6/6
 - Limites documentées : moteur IA à lancer séparément (make run-ai) ; stockage mémoire par défaut (YAHRIACAD_DB_URL pour persister) ; RL nécessite checkpoint entraîné ; TLS via reverse proxy
+
+---
+Task ID: 9
+Agent: Super Z (main)
+Task: Test réel avec de vraies cartes KiCad officielles (import → placement → routage → DRC → exports)
+
+Work Log:
+- Téléchargé 2 vraies cartes depuis le repo officiel KiCad (demos/, format kicad_pcb version 20241229, pcbnew 9.0) : complex_hierarchy (68 empreintes, 52 nets, 884 Ko) + video (189 empreintes, 588 nets, 5,8 Mo)
+- Import multipart champ file (export_handler.go, max 64 Mo) ; lecteur kicad.go parse net/footprint/pad/segment/via
+- complex_hierarchy : import 68 comp / 52 nets / 364 pistes / 0 warning → placement 68 OK → routage A* 52/52 nets en 6 363 ms → DRC 6 règles (violations citant les VRAIS nets KiCad ex. /ampli_ht_vertical/S_OUT+) → Gerber 7 fichiers + ODB++ 8 fichiers ; netlist ODB++ contient les vrais nets (+12V, -VAA, /12Vext…)
+- video : import 189 comp / 588 nets / 7 932 pistes / 808 vias / 0 warning → placement 189 OK → routage A* 588/588 nets en 315,9 s (script smoke_video_stress.sh) → export Gerber 95,7 Ko HTTP 200
+- Scripts persistés : scripts/smoke_kicad_real.sh + scripts/smoke_video_stress.sh
+- Pièges : f-string avec \" dans python -c => SyntaxError (utiliser clés simples) ; layout 5,8 Mo en argv => Argument list too long (passer par fichier) ; routage 588 nets > fenêtre 240 s du premier script (refait avec 480 s)
+
+Stage Summary:
+- Le scénario « transition KiCad » tient sur le terrain : deux vraies cartes pcbnew 9 traversent le pipeline complet sans warning, avec routage A* complet (52 nets 6,4 s ; 588 nets 5 min 16 s) et exports producteur contenant les données KiCad réelles
+- Limite mesurée : 588 nets en 5 min 16 s CPU = utilisable mais lent ; WS de progression utile ; DRC signale des clearances bord (carte démo dense) — preuve que le DRC lit les vrais nets
