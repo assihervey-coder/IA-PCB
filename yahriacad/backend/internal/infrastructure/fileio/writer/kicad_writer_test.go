@@ -2,11 +2,13 @@ package writer
 
 import (
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	domainlayout "github.com/assihervey-coder/IA-PCB/backend/internal/domain/layout"
 	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/fileio/reader"
 )
 
@@ -131,18 +133,23 @@ func TestKicadWriterRoundTrip(t *testing.T) {
 		}
 	}
 
-	// chaque piste multi-points ressort en segments de 2 points : le
-	// nombre total de segments doit être conservé
-	wantSegs := 0
-	for _, tr := range board.Tracks {
-		wantSegs += len(tr.Points) - 1
+	// la fusion des segments contigus/colinéaires à l'import modifie la
+	// granularité (points redondants supprimés), pas la géométrie : la
+	// longueur totale du cuivre est l'invariant du round-trip
+	pathLen := func(tracks []domainlayout.Track) float64 {
+		total := 0.0
+		for _, tr := range tracks {
+			for i := 1; i < len(tr.Points); i++ {
+				dx := tr.Points[i].X - tr.Points[i-1].X
+				dy := tr.Points[i].Y - tr.Points[i-1].Y
+				total += math.Sqrt(dx*dx + dy*dy)
+			}
+		}
+		return total
 	}
-	gotSegs := 0
-	for _, tr := range rt.Tracks {
-		gotSegs += len(tr.Points) - 1
-	}
-	if gotSegs != wantSegs {
-		t.Errorf("segments : attendu %d, obtenu %d", wantSegs, gotSegs)
+	const epsLen = 1e-6
+	if want, got := pathLen(board.Tracks), pathLen(rt.Tracks); math.Abs(want-got) > epsLen {
+		t.Errorf("longueur de cuivre : attendu %g, obtenu %g", want, got)
 	}
 	// net de la piste conservé
 	netSeen := map[string]bool{}

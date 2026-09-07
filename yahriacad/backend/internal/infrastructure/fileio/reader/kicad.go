@@ -419,7 +419,9 @@ func readKiCadPCB(data []byte, path string) (schematicapp.ImportResult, error) {
 		}
 	}
 
-	// Pistes et vias.
+	// Pistes et vias — fusion cosmétique des segments contigus/colinéaires
+	// en pistes multi-points (géométrie inchangée, jonctions préservées).
+	st.tracks = mergeTracks(st.tracks)
 	for _, t := range st.tracks {
 		board.AddTrack(t)
 	}
