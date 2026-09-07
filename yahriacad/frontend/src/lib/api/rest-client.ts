@@ -3,6 +3,7 @@
  * En dev, les appels passent par le rewrite Next `/api/v1/*` vers le backend Go.
  */
 import axios from "axios";
+import { clearToken, getToken, setToken } from "./auth";
 import type {
   AIStrategy,
   ArenaReport,
@@ -11,6 +12,8 @@ import type {
   AutoFixResult,
   AIModelInfo,
   AIModelReloadResult,
+  AuthLoginResponse,
+  AuthMe,
   CollabApplyResult,
   CollabOpRequest,
   CollabState,
@@ -45,6 +48,37 @@ const http = axios.create({
   baseURL,
   timeout: TIMEOUT_MS,
 });
+
+// ------------------------------------------------------------------
+// Authentification JWT : chaque requête porte le jeton s'il existe,
+// et tout 401 hors de la page de login purge le jeton et renvoie vers
+// /pages/login (contrats.md §13).
+// ------------------------------------------------------------------
+http.interceptors.request.use((config) => {
+  const token = getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+http.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (
+      axios.isAxiosError(err) &&
+      err.response?.status === 401 &&
+      typeof err.config?.url === "string" &&
+      !err.config.url.includes("/auth/") &&
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/pages/login")
+    ) {
+      clearToken();
+      window.location.href = "/pages/login";
+    }
+    return Promise.reject(err);
+  }
+);
 
 export interface ProjectListResponse {
   projects: Project[];
@@ -81,6 +115,33 @@ function id(projectId: string): string {
 }
 
 export const api = {
+  /** Connexion JWT : stocke le jeton puis renvoie la réponse du backend. */
+  async login(username: string, password: string): Promise<AuthLoginResponse> {
+    const res = await http.post<AuthLoginResponse>("/auth/login", {
+      username,
+      password,
+    });
+    setToken(res.data.token);
+    return res.data;
+  },
+
+  /** Déconnexion locale : simple oubli du jeton. */
+  logout(): void {
+    clearToken();
+  },
+
+  /** Vérifie le jeton courant ; null quand il est absent ou rejeté. */
+  async me(): Promise<AuthMe | null> {
+    if (!getToken()) return null;
+    try {
+      const res = await http.get<AuthMe>("/auth/me");
+      return res.data;
+    } catch {
+      clearToken();
+      return null;
+    }
+  },
+
   /** Vérifie que le backend répond (utilisé par l'indicateur d'état). */
   async pingBackend(): Promise<boolean> {
     try {

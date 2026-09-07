@@ -36,6 +36,7 @@ import (
 	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/ai"
 	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/api/rest"
 	yahriacadws "github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/api/websocket"
+	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/auth"
 	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/config"
 	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/fileio/reader"
 	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/fileio/writer"
@@ -142,38 +143,47 @@ func main() {
 	demoSvc := demoapp.NewService(repo, log)
 	impedanceSvc := verificationapp.NewImpedanceService(repo)
 
+	// --------------------------------------------------------------
+	// Authentification JWT (durcissement production, contracts.md §13).
+	// --------------------------------------------------------------
+	authService := buildAuthService(cfg, log)
+
 	handler := rest.NewRouter(rest.Deps{
-		Projects:    repo,
-		Import:      importSvc,
-		Validation:  validationSvc,
-		Place:       placeSvc,
-		Route:       routeSvc,
-		Optimize:    optimizeSvc,
-		DRC:         drcChecker,
-		ERC:         ercChecker,
-		Thermal:     thermalSvc,
-		SI:          siSvc,
-		Magic:       magicSvc,
-		Arena:       arenaSvc,
-		AutoFix:     autoFixSvc,
-		Doctor:      doctorSvc,
-		DFM:         dfmSvc,
-		TimeMachine: timeMachineSvc,
-		Stats:       statsSvc,
-		Pours:       pourSvc,
-		NetClasses:  netClassSvc,
-		Collab:      collabSvc,
-		Demo:        demoSvc,
-		Impedance:   impedanceSvc,
-		Gerber:      gerberSvc,
-		BOM:         bomSvc,
-		STEP:        stepSvc,
-		ODB:         odbSvc,
-		Hub:         hub,
-		Logger:      log,
-		Version:     version,
-		AI:          aiService,
-		Database:    mode,
+		Projects:       repo,
+		Import:         importSvc,
+		Validation:     validationSvc,
+		Place:          placeSvc,
+		Route:          routeSvc,
+		Optimize:       optimizeSvc,
+		DRC:            drcChecker,
+		ERC:            ercChecker,
+		Thermal:        thermalSvc,
+		SI:             siSvc,
+		Magic:          magicSvc,
+		Arena:          arenaSvc,
+		AutoFix:        autoFixSvc,
+		Doctor:         doctorSvc,
+		DFM:            dfmSvc,
+		TimeMachine:    timeMachineSvc,
+		Stats:          statsSvc,
+		Pours:          pourSvc,
+		NetClasses:     netClassSvc,
+		Collab:         collabSvc,
+		Demo:           demoSvc,
+		Impedance:      impedanceSvc,
+		Gerber:         gerberSvc,
+		BOM:            bomSvc,
+		STEP:           stepSvc,
+		ODB:            odbSvc,
+		Hub:            hub,
+		Logger:         log,
+		Version:        version,
+		AI:             aiService,
+		Database:       mode,
+		Auth:           authService,
+		AllowedOrigins: cfg.AllowedOrigins,
+		AIRateRPS:      cfg.AIRateRPS,
+		AIRateBurst:    cfg.AIRateBurst,
 	})
 
 	server := &http.Server{
@@ -188,7 +198,8 @@ func main() {
 		"database", mode,
 		"ai_addr", cfg.AIAddr,
 		"data_dir", cfg.DataDir,
-		"app_env", cfg.AppEnv)
+		"app_env", cfg.AppEnv,
+		"auth", authService != nil)
 
 	// Arrêt propre sur SIGINT/SIGTERM.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -218,6 +229,43 @@ func main() {
 		}
 		log.Info("serveur arrêté")
 	}
+}
+
+// buildAuthService instantiates the JWT service when the configuration
+// enables it. In production a missing secret aborts the startup (fail fast);
+// in development an ephemeral secret is generated (tokens die with the
+// process, acceptable locally) so the protected mode is testable out of the
+// box. When auth stays disabled in production a loud warning is logged.
+func buildAuthService(cfg config.Config, log *slog.Logger) *auth.Service {
+	if !cfg.AuthEnabled {
+		if cfg.AppEnv == "production" {
+			log.Warn("API OUVERTE : authentification désactivée en production " +
+				"(configurez YAHRIACAD_JWT_SECRET ou YAHRIACAD_AUTH_ENABLED=true)")
+		}
+		return nil
+	}
+
+	secret := strings.TrimSpace(cfg.JWTSecret)
+	if secret == "" {
+		if cfg.AppEnv == "production" {
+			log.Error("auth activée sans secret JWT en production : démarrage impossible " +
+				"(YAHRIACAD_JWT_SECRET requis)")
+			os.Exit(1)
+		}
+		generated, err := auth.GenerateEphemeralSecret()
+		if err != nil {
+			log.Error("secret JWT éphémère impossible", "err", err)
+			os.Exit(1)
+		}
+		secret = generated
+		log.Warn("secret JWT absent : secret éphémère généré (les jetons expirent au redémarrage, dev)")
+	}
+
+	svc := auth.NewService(secret, cfg.JWTTTL, cfg.AuthUsers, log)
+	log.Info("authentification JWT activée (HS256)",
+		"utilisateurs", svc.UserCount(),
+		"ttl", cfg.JWTTTL.String())
+	return svc
 }
 
 // buildRepository selects the persistence adapter: PostgreSQL when a DSN is

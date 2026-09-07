@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, isBackendDown } from "@/lib/api/rest-client";
+import { isLoggedIn } from "@/lib/api/auth";
 import type { Project, ProjectCreate } from "@/lib/api/types";
 import { useProjectStore } from "@/lib/store/project-store";
 import { useUIStore } from "@/lib/store/ui-store";
@@ -26,6 +27,11 @@ export default function ProjectManagerPage() {
 
   const [deleteTarget, setDeleteTarget] = useState<Project | null>(null);
   const [creating, setCreating] = useState(false);
+  const [hasSession, setHasSession] = useState(false);
+
+  useEffect(() => {
+    setHasSession(isLoggedIn());
+  }, []);
 
   useEffect(() => {
     void loadProjects();
@@ -95,6 +101,18 @@ export default function ProjectManagerPage() {
           </p>
         </div>
         <div className="page-actions">
+          {hasSession && (
+            <Button
+              variant="ghost"
+              data-testid="logout-btn"
+              onClick={() => {
+                api.logout();
+                router.replace("/pages/login");
+              }}
+            >
+              Déconnexion
+            </Button>
+          )}
           <Button data-testid="create-project-btn" onClick={() => openModal("create-project")}>
             Nouveau projet
           </Button>

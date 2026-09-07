@@ -45,6 +45,9 @@ cd tests/e2e && npm test
 |---|---|
 | `affiche la grille de projets` | `/pages/project-manager` → grille `projects-grid` visible (mode démo accepté). |
 | `crée un projet (mode démo ou API)` | bouton `create-project-btn` → formulaire (`project-form-name`, `project-form-submit`) → carte `project-card` contenant « Carte Test » sous 10 s. |
+| `la page de connexion s'affiche…` (auth.spec.ts) | `/pages/login` → formulaire visible, validation `required`, puis selon le mode du backend : login admin/admin, `503 auth_disabled` (bouton Continuer) ou backend injoignable — vert dans les trois cas. |
+| `parcours login → gestionnaire → déconnexion` (auth.spec.ts) | login JWT (ou « Continuer sans connexion » en dev) → grille `projects-grid` → `logout-btn` → retour `/pages/login` → reconnexion complète. |
+| `éditeur PCB accessible après connexion` (auth.spec.ts) | avec auth activée uniquement : `project-card` → `pcb-canvas`. |
 | `ouvre l'éditeur PCB et lance le routage` | ouverture du premier `project-card` → `pcb-canvas` visible → page `/pages/pcb-layout/router` → `route-start-btn` → `progress-bar` visible. |
 
 ## Astuces

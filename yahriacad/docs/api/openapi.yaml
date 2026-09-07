@@ -39,6 +39,8 @@ tags:
     description: Contrôles DRC (règles de conception) et ERC (règles électriques)
   - name: Export
     description: Fichiers de fabrication (Gerber, BOM CSV, STEP)
+  - name: Authentification
+    description: Connexion JWT (HS256) — active quand YAHRIACAD_JWT_SECRET est configuré (contrats.md §13)
 
 paths:
   /healthz:
@@ -79,6 +81,65 @@ paths:
                 version: 0.1.0
                 ai_engine: ok
                 database: postgres
+
+  /api/v1/auth/login:
+    post:
+      tags: [Authentification]
+      summary: Connexion (émet un JWT)
+      description: |
+        Route publique. Vérifie les identifiants contre les comptes configurés
+        (`YAHRIACAD_AUTH_USERS`, mots de passe bcrypt ou en clair en dev) et
+        renvoie un jeton HS256. Répond `503 auth_disabled` quand le serveur
+        tourne sans authentification.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthLoginRequest'
+      responses:
+        '200':
+          description: Jeton émis
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthLoginResponse'
+        '401':
+          description: Identifiants invalides
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+        '503':
+          description: Authentification désactivée sur ce serveur
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
+
+  /api/v1/auth/me:
+    get:
+      tags: [Authentification]
+      summary: Identité du jeton courant
+      description: Route protégée — renvoie l'identité associée au jeton
+        transmis ; permet au frontend de valider une session stockée.
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Identité authentifiée
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMe'
+        '401':
+          description: Jeton manquant ou invalide
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Unauthorized'
 
   /api/v1/ai/model:
     get:
@@ -776,7 +837,62 @@ components:
         type: string
       example: 3f9c2e64-1a52-4b7e-9c33-8d41f6a2b9e0
 
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Jeton émis par POST /api/v1/auth/login (HS256, expire selon YAHRIACAD_JWT_TTL, 24 h par défaut). Le handshake WebSocket accepte aussi le jeton via le paramètre d'URL `token`.
+
   schemas:
+    AuthLoginRequest:
+      type: object
+      required: [username, password]
+      properties:
+        username:
+          type: string
+          example: admin
+        password:
+          type: string
+          format: password
+          example: admin
+    AuthLoginResponse:
+      type: object
+      required: [token, token_type, expires_at, username]
+      properties:
+        token:
+          type: string
+          description: >-
+            JWT signé (HS256) à porter dans l'en-tête
+            `Authorization: Bearer`.
+        token_type:
+          type: string
+          example: Bearer
+        expires_at:
+          type: string
+          format: date-time
+        username:
+          type: string
+          example: admin
+    AuthMe:
+      type: object
+      required: [username]
+      properties:
+        username:
+          type: string
+          example: admin
+    Unauthorized:
+      type: object
+      description: Enveloppe d'erreur standard (401 jeton manquant/invalide, 429 rate_limited).
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [unauthorized, invalid_credentials, rate_limited]
+            message:
+              type: string
     Project:
       type: object
       description: Métadonnées d'un projet YahriaCad.

@@ -806,3 +806,20 @@ export interface DiffImpedanceResult {
   classes: DiffClassReport[];
   duration_ms: number;
 }
+
+// ==============================================================
+// Authentification JWT (contrats.md §13)
+// ==============================================================
+
+/** Réponse de POST /api/v1/auth/login. */
+export interface AuthLoginResponse {
+  token: string;
+  token_type: string;
+  expires_at: string;
+  username: string;
+}
+
+/** Réponse de GET /api/v1/auth/me. */
+export interface AuthMe {
+  username: string;
+}

@@ -25,6 +25,7 @@ import (
 	verificationapp "github.com/assihervey-coder/IA-PCB/backend/internal/application/verification"
 	domainproject "github.com/assihervey-coder/IA-PCB/backend/internal/domain/project"
 	yahriacadws "github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/api/websocket"
+	"github.com/assihervey-coder/IA-PCB/backend/internal/infrastructure/auth"
 )
 
 // healthProbeTimeout bounds the AI engine probe of /healthz.
@@ -67,6 +68,17 @@ type Deps struct {
 	// Champs additionnels (hors contrat figé) pour /healthz.
 	AI       layoutapp.AIService // sonde du moteur IA (peut être nil)
 	Database string              // "memory" | "postgres"
+
+	// Durcissement production (additif, valeur zéro = comportement dev) :
+	// Auth non nil => JWT exigé sur les routes protégées ; AllowedOrigins
+	// vide => CORS permissif "*" ; AIRateRPS <= 0 => pas de limite IA.
+	Auth           *auth.Service
+	AllowedOrigins []string
+	AIRateRPS      float64
+	AIRateBurst    int
+
+	// AIRate est construit par NewRouter quand AIRateRPS > 0.
+	AIRate *ipRateLimiter
 }
 
 // NewRouter builds the HTTP handler: Go 1.22 method patterns, recovery,
@@ -78,17 +90,30 @@ func NewRouter(d Deps) http.Handler {
 	if d.Database == "" {
 		d.Database = "memory"
 	}
+	if d.AIRateRPS > 0 {
+		burst := d.AIRateBurst
+		if burst <= 0 {
+			burst = int(d.AIRateRPS) * 5
+		}
+		d.AIRate = newIPRateLimiter(d.AIRateRPS, burst)
+	}
 
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /healthz", d.handleHealth)
+	mux.HandleFunc("GET /metrics", d.handleMetrics)
+
+	// Authentification JWT (additif, §13) : login public, /me protégé
+	// par le middleware d'authentification global.
+	mux.HandleFunc("POST /api/v1/auth/login", d.handleLogin)
+	mux.HandleFunc("GET /api/v1/auth/me", d.handleMe)
 
 	// Démo « carte cauchemar » (tutoriel vivant Auto-Healer + Doctor).
-	mux.HandleFunc("POST /api/v1/demo/nightmare", d.handleDemoNightmare)
+	mux.HandleFunc("POST /api/v1/demo/nightmare", d.aiLimited(d.handleDemoNightmare))
 
 	// Modèle RL (PyTorch) : inspection + rechargement à chaud (additif).
 	mux.HandleFunc("GET /api/v1/ai/model", d.handleAIModelInfo)
-	mux.HandleFunc("POST /api/v1/ai/model/reload", d.handleAIModelReload)
+	mux.HandleFunc("POST /api/v1/ai/model/reload", d.aiLimited(d.handleAIModelReload))
 
 	mux.HandleFunc("GET /api/v1/projects", d.handleListProjects)
 	mux.HandleFunc("POST /api/v1/projects", d.handleCreateProject)
@@ -99,9 +124,9 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{id}/import", d.handleImport)
 	mux.HandleFunc("GET /api/v1/projects/{id}/layout", d.handleGetLayout)
 	mux.HandleFunc("PUT /api/v1/projects/{id}/layout", d.handlePutLayout)
-	mux.HandleFunc("POST /api/v1/projects/{id}/place", d.handlePlace)
-	mux.HandleFunc("POST /api/v1/projects/{id}/route", d.handleRoute)
-	mux.HandleFunc("POST /api/v1/projects/{id}/optimize", d.handleOptimize)
+	mux.HandleFunc("POST /api/v1/projects/{id}/place", d.aiLimited(d.handlePlace))
+	mux.HandleFunc("POST /api/v1/projects/{id}/route", d.aiLimited(d.handleRoute))
+	mux.HandleFunc("POST /api/v1/projects/{id}/optimize", d.aiLimited(d.handleOptimize))
 	mux.HandleFunc("GET /api/v1/projects/{id}/jobs/{jobID}", d.handleGetJob)
 	mux.HandleFunc("POST /api/v1/projects/{id}/drc", d.handleDRC)
 	mux.HandleFunc("POST /api/v1/projects/{id}/erc", d.handleERC)
@@ -124,17 +149,17 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{id}/collab/redo", d.handleCollabRedo)
 
 	// Magic Pack (additif, hors contrat figé).
-	mux.HandleFunc("POST /api/v1/projects/{id}/magic", d.handleMagic)
+	mux.HandleFunc("POST /api/v1/projects/{id}/magic", d.aiLimited(d.handleMagic))
 	mux.HandleFunc("POST /api/v1/projects/{id}/thermal", d.handleThermal)
 	mux.HandleFunc("POST /api/v1/projects/{id}/si", d.handleSI)
 	mux.HandleFunc("POST /api/v1/projects/{id}/impedance", d.handleImpedance)
-	mux.HandleFunc("POST /api/v1/projects/{id}/arena", d.handleArena)
-	mux.HandleFunc("POST /api/v1/projects/{id}/arena/benchmark", d.handleArenaBenchmark)
+	mux.HandleFunc("POST /api/v1/projects/{id}/arena", d.aiLimited(d.handleArena))
+	mux.HandleFunc("POST /api/v1/projects/{id}/arena/benchmark", d.aiLimited(d.handleArenaBenchmark))
 	mux.HandleFunc("GET /api/v1/arena/leaderboard", d.handleArenaLeaderboard)
 
 	// Pack WOW (additif, hors contrat figé).
-	mux.HandleFunc("POST /api/v1/projects/{id}/drc/autofix", d.handleAutoFix)
-	mux.HandleFunc("GET /api/v1/projects/{id}/doctor", d.handleDoctor)
+	mux.HandleFunc("POST /api/v1/projects/{id}/drc/autofix", d.aiLimited(d.handleAutoFix))
+	mux.HandleFunc("GET /api/v1/projects/{id}/doctor", d.aiLimited(d.handleDoctor))
 	mux.HandleFunc("POST /api/v1/projects/{id}/dfm", d.handleDFM)
 	mux.HandleFunc("POST /api/v1/projects/{id}/snapshots", d.handleSnapshotCapture)
 	mux.HandleFunc("GET /api/v1/projects/{id}/snapshots", d.handleSnapshotList)
@@ -151,11 +176,21 @@ func NewRouter(d Deps) http.Handler {
 		mux.HandleFunc("GET /ws/v1/progress", d.Hub.ServeWS)
 	}
 
-	return d.middleware(mux)
+	// Chaîne production : CORS strict → recovery + logging + métriques →
+	// authentification JWT (quand configurée). L'auth est la couche la plus
+	// externe après CORS : les préflights OPTIONS passent sans jeton.
+	handler := d.middleware(mux)
+	if d.Auth != nil {
+		handler = d.Auth.Middleware(handler)
+	}
+	return handler
 }
 
-// middleware wraps the mux with panic recovery, request logging and CORS
-// handling (Access-Control-Allow-Origin + OPTIONS 204).
+// middleware wraps the mux with panic recovery, request logging, Prometheus
+// instrumentation and strict CORS: Access-Control-Allow-Origin echoes the
+// request Origin only when it appears in AllowedOrigins (or when the list is
+// the permissive default "*"), so cross-origin access follows the
+// environment configuration instead of staying wide open.
 func (d *Deps) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -173,18 +208,32 @@ func (d *Deps) middleware(next http.Handler) http.Handler {
 			}
 		}()
 
-		// CORS : origine permissive (le durcissement par environnement est
-		// géré par le reverse proxy en production).
-		rec.Header().Set("Access-Control-Allow-Origin", "*")
-		rec.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		rec.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// CORS strict : l'origine n'est reflétée que si elle est autorisée.
+		// Sans en-tête Origin (clients non navigateurs), aucun en-tête CORS
+		// n'est émis — les appels serveur-à-serveur restent possibles.
+		if origin := r.Header.Get("Origin"); origin != "" {
+			rec.Header().Add("Vary", "Origin")
+			if d.originAllowed(origin) {
+				if len(d.AllowedOrigins) == 1 && d.AllowedOrigins[0] == "*" {
+					rec.Header().Set("Access-Control-Allow-Origin", "*")
+				} else {
+					rec.Header().Set("Access-Control-Allow-Origin", origin)
+				}
+				rec.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+				rec.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			} else if r.Method == http.MethodOptions {
+				d.Logger.Warn("cors : origine refusée", "origin", origin, "path", r.URL.Path)
+			}
+		}
 
 		if r.Method == http.MethodOptions {
 			rec.WriteHeader(http.StatusNoContent)
+			d.instrument(rec, r, time.Since(start).Seconds())
 			return
 		}
 
 		next.ServeHTTP(rec, r)
+		d.instrument(rec, r, time.Since(start).Seconds())
 
 		d.Logger.Log(r.Context(), slog.LevelDebug, "requete http",
 			"method", r.Method,
@@ -192,6 +241,19 @@ func (d *Deps) middleware(next http.Handler) http.Handler {
 			"status", rec.status,
 			"duration_ms", time.Since(start).Milliseconds())
 	})
+}
+
+// originAllowed reports whether the request origin may receive CORS headers.
+func (d *Deps) originAllowed(origin string) bool {
+	if len(d.AllowedOrigins) == 0 {
+		return true // défaut historique "*" (dev) : permissif
+	}
+	for _, o := range d.AllowedOrigins {
+		if o == "*" || o == origin {
+			return true
+		}
+	}
+	return false
 }
 
 // statusRecorder captures the response status for the access log.

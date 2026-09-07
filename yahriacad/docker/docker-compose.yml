@@ -6,9 +6,13 @@
 #
 # Services :
 #   postgres   : PostgreSQL 16 (persistance des projets)
-#   ai-engine  : moteur IA Python/gRPC (port interne 50051)
-#   backend    : serveur Go REST + WebSocket (8080)
+#   ai-engine  : moteur IA Python/gRPC (port interne 50051, image dédiée)
+#   backend    : serveur Go REST + WebSocket (8080, JWT activé)
 #   frontend   : Next.js SSR (3000)
+#
+# Secrets : passez YAHRIACAD_JWT_SECRET et YAHRIACAD_AUTH_USERS par variables
+# d'environnement de votre shell ou un fichier .env — les valeurs ci-dessous
+# ne sont que des défauts de démonstration.
 #
 # Remarque : un reverse-proxy frontal optionnel (configs/production/nginx.conf)
 # peut être ajouté en amont pour centraliser TLS / gzip / WebSocket.
@@ -35,23 +39,17 @@ services:
       - yahriacad
 
   ai-engine:
-    image: python:3.11-slim
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ai
+      args:
+        # true pour embarquer PyTorch CPU (~+800 Mo) et permettre le
+        # benchmark RL ; false = routeur A* uniquement (image légère).
+        WITH_TORCH: "false"
+    image: yahriacad-ai-engine:latest
     container_name: yahriacad-ai-engine
-    working_dir: /app
-    # Le code du moteur (ai-engine/) et les stubs gRPC générés
-    # (shared/gen/python) sont montés, jamais copiés : itération rapide.
-    volumes:
-      - ./ai-engine:/app
-      - ./shared:/repo/shared:ro
     environment:
       YAHRIACAD_AI_PORT: "50051"
-    # Dépendances installées au démarrage (image de base générique volontaire) ;
-    # PYTHONPATH expose le paquet ai-engine ET les stubs partagés (pcb_pb2*),
-    # conformément au contrat §6 (pas de stubs dupliqués).
-    command: >
-      bash -c "pip install --no-cache-dir -r requirements.txt &&
-               PYTHONPATH=/app:/repo/shared/gen/python
-               python cmd/ai-server/main.py --port 50051"
     expose:
       - "50051"
     networks:
@@ -70,6 +68,13 @@ services:
       YAHRIACAD_LOG_LEVEL: info
       YAHRIACAD_DATA_DIR: /data
       YAHRIACAD_ALLOWED_ORIGINS: http://localhost:3000
+      # Durcissement (contrats.md §13) : surchargez via .env en production.
+      YAHRIACAD_APP_ENV: production
+      YAHRIACAD_JWT_SECRET: ${YAHRIACAD_JWT_SECRET:-change-me-in-.env}
+      YAHRIACAD_JWT_TTL: ${YAHRIACAD_JWT_TTL:-24h}
+      YAHRIACAD_AUTH_USERS: ${YAHRIACAD_AUTH_USERS:-admin:admin}
+      YAHRIACAD_AI_RATE_RPS: ${YAHRIACAD_AI_RATE_RPS:-2}
+      YAHRIACAD_AI_RATE_BURST: ${YAHRIACAD_AI_RATE_BURST:-10}
     ports:
       - "8080:8080"
     volumes:

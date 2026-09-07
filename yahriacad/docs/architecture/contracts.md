@@ -568,3 +568,79 @@ couverts par l'export Gerber. Le `.tgz` est servi en
 `application/gzip` avec l'en-tête `X-YahriaCad-File-Count`.
 
 - UI : carte **Job ODB++ (v8 simplifié)** de la page Export.
+
+## 14. Durcissement production — authentification JWT, CORS strict, rate limit, métriques (v0.6)
+
+Lot « prod hardening » : tout est **additif** — sans configuration (`YAHRIACAD_JWT_SECRET`
+absent, `YAHRIACAD_AUTH_ENABLED` à false), le comportement historique (API ouverte,
+CORS permissif) est conservé pour le développement local et les tests.
+
+### 14.1 Authentification JWT (HS256)
+
+- Activation : `YAHRIACAD_AUTH_ENABLED=true` **ou** présence de `YAHRIACAD_JWT_SECRET`.
+- Comptes : `YAHRIACAD_AUTH_USERS="user:secret;ops:$2a$…"` (bcrypt détecté par le
+  préfixe `$2`, sinon comparaison à temps constant en clair — dev uniquement).
+- Durée de vie : `YAHRIACAD_JWT_TTL` (durée Go, 24 h par défaut).
+- En production (`YAHRIACAD_APP_ENV=production`) : secret absent => démarrage
+  refusé (fail fast) ; auth désactivée => warning explicite dans les logs.
+  En développement, un secret éphémère est généré (les jetons expirent au
+  redémarrage du serveur).
+
+Endpoints additifs :
+
+```
+POST /api/v1/auth/login   {username,password} -> {token,token_type,expires_at,username}
+                          (public ; 503 auth_disabled si le serveur tourne sans auth)
+GET  /api/v1/auth/me      -> {username}   (jeton requis)
+```
+
+- Toutes les routes `/api/*`, `/ws/*` et les exports exigent le jeton sauf
+  `/healthz`, `/metrics` et `/api/v1/auth/login` (les préflights CORS `OPTIONS`
+  passent toujours).
+- Transport du jeton : en-tête `Authorization: Bearer <jwt>` ; pour le
+  handshake WebSocket (les navigateurs ne peuvent pas poser d'en-tête),
+  paramètre d'URL `?token=<jwt>`.
+- Erreurs : enveloppe standard `{error:{code,message}}` avec
+  `401 unauthorized` / `401 invalid_credentials` (login volontairement
+  générique) / `429 rate_limited`.
+
+### 14.2 CORS strict
+
+Le middleware n'émet `Access-Control-Allow-Origin` que pour les origines de
+`YAHRIACAD_ALLOWED_ORIGINS` (liste séparée par des virgules) ; la valeur
+historique `*` reste acceptée explicitement. Sans en-tête `Origin` (client
+non navigateur), aucune en-tête CORS n'est ajoutée. `Vary: Origin` est posé.
+
+### 14.3 Rate limiting des routes IA
+
+`YAHRIACAD_AI_RATE_RPS` (défaut 2) et `YAHRIACAD_AI_RATE_BURST` (défaut 10)
+bornent les requêtes **par adresse IP** sur les routes coûteuses :
+`/place`, `/route`, `/optimize`, `/magic`, `/arena`, `/arena/benchmark`,
+`/doctor`, `/drc/autofix`, `/demo/nightmare`, `/ai/model/reload`.
+Au-delà : `429 rate_limited` + en-tête `Retry-After`. Les buckets inactifs
+sont purgés par un balayage périodique ; `X-Forwarded-For` (premier saut)
+est honoré derrière le reverse proxy. RPS <= 0 désactive la limite (tests).
+
+### 14.4 Métriques Prometheus
+
+`GET /metrics` (public) expose :
+
+```
+yahriacad_http_requests_total{method,route,status}
+yahriacad_http_request_duration_seconds{method,route}   # histogramme
+yahriacad_build_info{version,database}
+```
+
+Le label `route` est normalisé (les identifiants deviennent `{id}` ; les
+chemins hors gabarits connus sont rabattus sur `/api/v1/{unmatched}`) afin
+que la cardinalité des séries reste bornée.
+
+### 14.5 Frontend
+
+- `lib/api/auth.ts` : stockage du jeton (localStorage `yahriacad_jwt`).
+- `lib/api/rest-client.ts` : intercepteur requête `Bearer` + intercepteur
+  réponse `401` (hors `/auth/`) qui purge le jeton et renvoie vers
+  `/pages/login`.
+- Page `/pages/login` (formulaire, gestion `503 auth_disabled` avec entrée
+  « Continuer sans connexion » en mode développement) ; bouton
+  « Déconnexion » dans le gestionnaire de projets quand une session existe.

@@ -156,6 +156,12 @@ entraîné est chargé).
 | `YAHRIACAD_DATA_DIR` | `./data` | répertoire des exports |
 | `YAHRIACAD_ALLOWED_ORIGINS` | `*` | CORS |
 | `YAHRIACAD_CONFIG` | *(vide)* | fichier JSON de configuration optionnel |
+| `YAHRIACAD_AUTH_ENABLED` | `false` | active l'authentification JWT (implicite si un secret est défini) |
+| `YAHRIACAD_JWT_SECRET` | *(vide)* | secret HS256 ; requis en production (fail fast sinon) |
+| `YAHRIACAD_JWT_TTL` | `24h` | durée de vie des jetons |
+| `YAHRIACAD_AUTH_USERS` | *(vide)* | comptes `user:secret;user2:$2a$hash…` (bcrypt recommandé) |
+| `YAHRIACAD_AI_RATE_RPS` | `2` | limite IA par IP (<= 0 : désactivée) |
+| `YAHRIACAD_AI_RATE_BURST` | `10` | rafale autorisée avant 429 |
 
 ## L'IA dans YahriaCad
 
@@ -248,6 +254,17 @@ détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/arc
 | 🤖 Modèle RL (PyTorch) pilotable | `GET/POST /api/v1/ai/model[/reload]` + panneau « Modèle RL » | état détaillé du checkpoint (device, paramètres, horodatage, stratégie effective) et **rechargement à chaud** — basculez sur un `.pt` fraîchement entraîné (`make train-router`) sans redémarrer le moteur ; en cas d'échec le modèle précédent et le repli A* sont conservés |
 | 🔌 Contrat gRPC étendu (additif) | `yahriacad.pcb.v1` | deux nouvelles RPC `GetModelInfo` / `ReloadModel`, messages existants inchangés ; stubs Go + Python régénérés (`make proto`) |
 | 📦 Export ODB++ | `GET .../export/odbpp` + carte « Job ODB++ » | job ODB++ v8 simplifié en .tgz — matrix, netlist, features cuivre par couche (L/P/V), placements composants — le format d'échange des télématics (contracts §13) |
+
+## Prod hardening v0.6 — auth JWT, CORS strict, rate limit, métriques
+
+| Fonction | Où | Description |
+|---|---|---|
+| 🔐 Authentification JWT (HS256) | `POST /api/v1/auth/login`, `GET /auth/me` + page `/pages/login` | jeton Bearer sur toutes les routes REST/WS (paramètre `?token=` pour le handshake WebSocket), comptes bcrypt ou en clair (dev) ; sans configuration, l'API reste ouverte (compat dev/CI) — détails contracts.md §14 |
+| 🌍 CORS strict | `YAHRIACAD_ALLOWED_ORIGINS` | l'origine n'est reflétée que si elle figure dans la liste (ou `*` explicite) ; `Vary: Origin` |
+| 🚦 Rate limit IA par IP | `YAHRIACAD_AI_RATE_RPS` / `_BURST` | token bucket (golang.org/x/time/rate) sur place/route/optimize/magic/arena/doctor/autofix/démo — `429` + `Retry-After` au-delà |
+| 📈 Métriques Prometheus | `GET /metrics` | compteur + histogramme de latence par route normalisée, `yahriacad_build_info` ; dashboards Grafana plug-and-play |
+| 🐳 Stack Docker durcie | `docker/` | distroless/static pour le backend, image AI dédiée multi-stage (torch optionnel via `WITH_TORCH=true`), healthchecks, secrets par `.env` |
+| 🎭 E2E auth Playwright | `tests/e2e/specs/auth.spec.ts` | parcours login → gestionnaire de projets → déconnexion |
 
 ## Documentation
 

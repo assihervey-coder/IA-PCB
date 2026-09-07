@@ -1,0 +1,45 @@
+# ==============================================================
+# YahriaCad — exclusions du contexte de build Docker
+# (appliqué à docker/Dockerfile, Dockerfile.ai, Dockerfile.frontend)
+# ==============================================================
+
+# VCS et métadonnées locales
+.git
+.gitignore
+.gitattributes
+
+# Dépendances installées localement (réinstallées dans l'image)
+node_modules
+**/node_modules
+frontend/.next
+frontend/tsconfig.tsbuildinfo
+
+# Sorties de build locales
+bin
+data
+*.log
+
+# Environnements virtuels Python et caches
+.venv
+venv
+__pycache__
+**/__pycache__
+.pytest_cache
+.ruff_cache
+ai-engine/.ruff_cache
+
+# Checkpoints d'entraînement (volumineux, jamais embarqués)
+ai-engine/training/checkpoints
+ai-engine/data
+*.pt
+
+# Outils et documents hors runtime
+tests
+docs
+scripts
+.github
+*.md
+!README.md
+
+# Docker lui-même
+docker/docker-compose.yml

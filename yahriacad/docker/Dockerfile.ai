@@ -1,0 +1,56 @@
+# ==============================================================
+# YahriaCad — image Docker du moteur IA (Python/gRPC)
+#
+# Construction (depuis la racine du monorepo) :
+#   docker build -f docker/Dockerfile.ai -t yahriacad-ai-engine .
+#
+# Multi-stage : les dépendances (requirements.txt) sont installées dans un
+# venv dédicé puis copiées dans une image runtime slim. PyTorch est OPTIONNEL
+# (inférence RL) : l'engine fonctionne sans torch grâce au routeur A* intégré
+# (contrat §6). Activer via --build-arg WITH_TORCH=true (image ~ +800 Mo).
+# ==============================================================
+
+# ---- Étape 1 : dépendances -------------------------------------------------
+FROM python:3.11-slim AS deps
+
+ARG WITH_TORCH=false
+
+WORKDIR /install
+
+COPY requirements.txt ./
+
+RUN python -m venv /opt/venv \
+    && /opt/venv/bin/pip install --no-cache-dir --upgrade pip \
+    && /opt/venv/bin/pip install --no-cache-dir -r requirements.txt \
+    && if [ "$WITH_TORCH" = "true" ]; then \
+           /opt/venv/bin/pip install --no-cache-dir torch \
+               --index-url https://download.pytorch.org/whl/cpu ; \
+       fi
+
+# ---- Étape 2 : image d'exécution -------------------------------------------
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# venv pré-rempli (PATH prioritaire), code moteur et stubs gRPC partagés.
+COPY --from=deps /opt/venv /opt/venv
+COPY ai-engine/ /app/
+COPY shared/gen/python/ /app/shared/gen/python/
+
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONPATH="/app:/app/shared/gen/python" \
+    PYTHONUNBUFFERED=1 \
+    YAHRIACAD_AI_PORT="50051"
+
+EXPOSE 50051
+
+# Utilisateur non privilégié (l'engine n'écrit que dans ./data si besoin).
+RUN useradd --system --create-home --shell /usr/sbin/nologin yahriacad \
+    && mkdir -p /app/data && chown -R yahriacad:yahriacad /app
+USER yahriacad
+
+# Sonde native : un canal gRPC local prêt en 3 s (pas de binaire externe).
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD python -c "import grpc; c = grpc.insecure_channel('localhost:50051'); grpc.channel_ready_future(c).result(timeout=4)" || exit 1
+
+ENTRYPOINT ["python", "cmd/ai-server/main.py", "--port", "50051"]
