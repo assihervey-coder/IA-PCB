@@ -332,3 +332,22 @@ Work Log:
 Stage Summary:
 - main à jour sur GitHub, CI vert ; la stack live (3000/8080/50051) et les 4 démos seedées restent opérationnelles
 - Restant : parser KiCad pic_programmer (0 nets), PAT toujours à révoquer, round-trip complet en attente
+
+---
+Task ID: 16
+Agent: Super Z (main)
+Task: Investiguer le parser pic_programmer (0 nets) + round-trip complet import→export→ré-import
+
+Work Log:
+- CAUSE RACINE (pic_programmer) : le fichier est en version 20260206 (pcbnew 10.0) — KiCad 10 supprime le numéro de net : (net "GND") au lieu de (net 3 "GND"), et ne déclare PLUS les nets au niveau racine (0 déclaration top-level, 236 refs pad + 370 segments par nom) ; le lecteur (net N "NAME") n'importait aucune net
+- FIX kicad.go : resolveNetRef reconnait les deux formats (Atoi sur arg(0) ; sinon nom -> numéro synthétique stable >= 100000 via netIDs) + registerNet (netOrder à la première rencontre, sans écraser un nom) ; pads/segments/vias/déclarations passent tous par le résolveur ; invisible côté domaine (Name + connexions)
+- Piège d'outillage : le premier MultiEdit a semi-appliqué (struct/init/déclarations sans les méthodes -> build cassé) ; complété par scripts/patch_kicad_reader.py (ancres exactes, échec bruyant) — le fichier était indenté par ESPACES, pas tabulations
+- Tests : backend/internal/infrastructure/fileio/reader/kicad_reader_test.go — fixture KiCad 10 par nom, régression KiCad 9 numérotée, stabilité des numéros synthétiques ; 3 PASS en -race ; suite backend complète OK
+- Live : stack redémarrée (nouveau binaire) + re-seed complet (DB mémoire vidée par le restart) : DEMO4-pic_programmer passe de 0 à 111 NETS, routage A* done (804 segments, 382 vias)
+- ROUND-TRIP (scripts/roundtrip_test.sh, export/kicad -> ré-import) : FIDÈLE sur 2 cartes réelles — complex_hierarchy 68 comp/52 nets/165 pads/835 segments/1730,0 mm/353 vias ; pic_programmer 63/111/247/804/1814,2 mm/382 ; le writer aplatit les pistes multi-points en segments élémentaires (242 pistes 4,45 pts -> 835 segments 2 pts) : granularité différente, géométrie bit-exacte
+- CI : 650972b rouge sur gofmt (kicad.go espace-indenté DEPUIS SON INTRODUCTION, masqué jusque-là par l'échec torch du job Python) ; corrigé par gofmt -w (57c0615) -> CI VERT (3 jobs success)
+
+Stage Summary:
+- Lecteur KiCad bicompatible (<=9 numéroté / >=10 par nom) ; pic_programmer 0 -> 111 nets ; round-trip complet prouvé fidèle sur 2 vraies cartes ; CI vert (57c0615)
+- 6 démos + 2 projets ROUNDTRIP visibles dans le project-manager
+- Restant : PAT GitHub à révoquer ; merger optionnel des segments collatéraux à l'import (cosmétique)
