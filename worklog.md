@@ -189,3 +189,26 @@ Work Log:
 Stage Summary:
 - Le scénario « transition KiCad » tient sur le terrain : deux vraies cartes pcbnew 9 traversent le pipeline complet sans warning, avec routage A* complet (52 nets 6,4 s ; 588 nets 5 min 16 s) et exports producteur contenant les données KiCad réelles
 - Limite mesurée : 588 nets en 5 min 16 s CPU = utilisable mais lent ; WS de progression utile ; DRC signale des clearances bord (carte démo dense) — preuve que le DRC lit les vrais nets
+
+---
+Task ID: 10
+Agent: Super Z (main)
+Task: Round-trip KiCad complet + entraînement RL ~20k pas + benchmark A* vs RL (vraie carte et carte démo)
+
+Work Log:
+- Chantier round-trip : writer/kicad_writer.go (s-expr version 20241229, ids couches KiCad 9 relevés sur vrais fichiers F.Cu=0/B.Cu=2/In1.Cu=4/Mask=1/SilkS=5/Edge.Cuts=25, net 0 vide, pads locaux, segments par paire, vias blind, gr_rect Edge.Cuts, uuids v4) + exportapp.KicadService + GET /export/kicad + main câblé + OpenAPI + README
+- Fix reader kicad.go : lecture (property "Reference"/"Value") pcbnew ≥7 (fallback fp_text ≤6 conservé) — sinon refs FP1/FP2 après round-trip
+- Bug corrigé : (kicad_pcb jamais fermé → parenthèses déséquilibrées ; test structure + round-trip complet via Registry.Read : positions, pads locaux, nets, segments, via conservés — verts
+- Round-trip RÉEL (smoke_roundtrip_kicad.sh) : complex_hierarchy 68 comp/52 nets/364 pistes → routage A* done → export 197,9 Ko (68 footprints, 165 pads, 835 segments, 353 vias, vrais nets +12V/-VAA//12Vext/GND présents) → ré-import 0 warning : 68/52/835/353 — COMPARAISON OK
+- Commit 63c0761 poussé (10 fichiers, 715 insertions) ; racine repo = /home/z/my-project confirmée (scripts/ suivis aussi)
+- Entraînement : calibrage 2048 pas = 49 s (~41 pas/s) ; run 20k avec --save-every 5000 tué au timeout 600 s ; model_v2.pt valide (650 317 params, mtime 13:51) — dernier checkpoint ~15-20k pas (non tranchable)
+- Benchmark carte démo (smoke_bench_numbers.sh, 6 nets) : A* 6/6, 146,0 mm, 0 via, 0 ms, score 592,70 vs RL 6/6, 196,5 mm, 10 vias, 45 950 ms, score 130,67 — verdict astar, marge 462,03, ELO 1212/1188
+- PROGRESSION RL mesurée : même carte, même protocole que le run 6k (Task 5) : score 49,72 → 130,67 (+163 %) à ~3-4× plus d'entraînement ; longueur/vias identiques (politique déterministe), le score progresse via pénalités temps/complétion
+- Scaling vraie carte (smoke_bench_real_board.sh, complex_hierarchy 52 nets) : RL non terminé après 480 s (budget env : max(64, 4×(W+H)×couches) pas/episode × 52 nets × inférence CPU) ; A* même carte = 6,4 s. pic_programmer inutilisable (pads (net "VCC") sans numéro non mappés par le reader)
+- Scripts pushés fc1a0c7 ; API GitHub injoignable depuis la sandbox → CI à vérifier côté GitHub (gates locaux verts : gofmt/vet/test -race tous paquets)
+
+Stage Summary:
+- Livré : export .kicad_pcb pcbnew 9 complet avec round-trip prouvé sur vraie carte (données conservées à l'identique, routage réimportable), reader modernisé properties pcbnew ≥7
+- Mesuré : RL +163 % de score à ~20k pas mais toujours dominé par A* (ELO 1212/1188) ; RL ne passe PAS à l'échelle 52 nets réels en <8 min CPU — la limite est structurelle (inférence pas-à-pas), pas un bug
+- Décisions : pas d'entraînement sur vraie carte (le trainer reste sur curriculum synthétique par conception) ; benchmark sur vraie carte reporté comme chantier futur (budget de pas à réduire pour l'inférence grande grille)
+- Restant : vérifier CI 3/3 sur GitHub (2 commits), PAT toujours à révoquer
