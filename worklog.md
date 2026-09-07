@@ -40,3 +40,26 @@ Stage Summary:
 - Livré : oracle d'impédance différentielle par classe de nets (backend+UI), éditeur CRDT complet côté frontend (outbox offline, rattrapage, undo/redo serveur), 2 bugs de physique SI corrigés
 - Décisions : endpoint POST impedance (corps optionnel), paires déduites des pistes si pas de schéma, clamp largeur 1.2mm (domaine de validité microstrip)
 - Reste : push (2 commits en avance dont d033764), PAT GitHub à révoquer (déjà signalé)
+
+---
+Task ID: 3
+Agent: Super Z (main)
+Task: Renommage plateforme KidCAD-Pro-IA → YahriaCad (repo IA-PCB)
+
+Work Log:
+- Inventaire: 408 occurrences "kidcad" dans ~141 fichiers trackés (produit) + 73 fichiers template racine; module Go github.com/kidcad/kidcad-pro-ia, contrat gRPC kidcad.pcb.v1, env KIDCAD_*, binaire kidcad-server, format .kidcad.json
+- Outils reinstallés: Go 1.22.12 (workspace .cache) + protoc-gen-go v1.34.2 + protoc-gen-go-grpc v1.4.0 (go install) pour régénération stubs complète
+- Renommage sédimenté ordonné (du plus spécifique au plus générique) sur fichiers TRACKÉS git: module Go → github.com/assihervey-coder/IA-PCB, proto kidcad.pcb.v1 → yahriacad.pcb.v1, KidCAD-Pro-IA/Kidcad/KidCAD/KidCad → YahriaCad, KIDCAD_ → YAHRIACAD_, kidcad-server → yahriacad-server, kidcad → yahriacad
+- git mv: backend/cmd/kidcad-server → backend/cmd/yahriacad-server (produit), src/lib/kidcad + src/components/kidcad → src/lib|components/yahriacad (template racine), dossier kidcad-pro-ia/ → yahriacad/
+- Stubs gRPC régénérés (Python + Go) depuis le proto renommé — descripteurs sérialisés cohérents (longueurs recalculées par protoc), dérive CI Python nulle
+- Réparation bug latent: ci.yml produit avait "branches: ain]" déjà dans HEAD (typo du lot précédent, invisible car workflow en sous-dossier non lu par GitHub)
+- CI effective GitHub créée à la RACINE: /.github/workflows/ci.yml (3 jobs avec working-directory: yahriacad, cache-dependency-path préfixés) + ci.yml produit réparé [main]
+- download/kidcad-pro-ia.zip sorti du suivi git (git rm --cached) + .gitignore download/*.zip + génération download/yahriacad.zip (12M)
+- Validation: 0 occurrence kidcad restante (fichiers trackés, casse-insensible), gofmt clean, go vet OK, go build OK, go test OK, pytest 5/5, tsc --noEmit frontend produit OK; erreurs TS template racine préexistantes (typage métier, non liées au rename)
+- Commit ebacc11 poussé sur main (48cda86..ebacc11); tag v0.1.0 conservé (pointe sur l'ancien code, historique intouché)
+
+Stage Summary:
+- Plateforme renommée YahriaCad de bout en bout: module Go, contrat gRPC wire, branding UI/docs/licence, chemins, binaire, env vars, CI racine effective
+- Décisions: package proto renommé (cassé la compat wire avec v0.1.0 — assumé pré-lancement, stubs régénérés et validés); template racine rebrandé aussi (le repo GitHub affiche YahriaCad en page d'accueil)
+- Piège contourné: artefact d'affichage du shell avalant "[m" dans les sorties grep (diagnostiqué par od) — vérifications finales faites par od sur les octets réels (index + HEAD)
+- Reste: PAT GitHub à révoquer (rappel); renommage du repo GitHub IA-PCB → YahriaCad possible sur demande (API PATCH repos, l'ancienne URL redirige)
