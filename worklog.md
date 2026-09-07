@@ -299,3 +299,22 @@ Work Log:
 Stage Summary:
 - Architecture finale : UNE instance next-server sur 3000 + backend 8080 + IA 50051, tout stable après coupures bash ; règle à retenir = jamais 2 next-server, lancement frontend uniquement via script
 - Le preview space-z.ai reste indéterminable depuis le sandbox (bot-id côté passerelle) mais le port 3000 standard est prêt
+
+---
+Task ID: 14
+Agent: Super Z (main)
+Task: « seed et donne moi les demos en ligne » — réparer le CI rouge (échec torch au CI) + seeder le serveur live avec les démos
+
+Work Log:
+- CI rouge diagnostiqué : test_save_load_roundtrip appelait build_torch_dataset -> _require_torch -> sys.exit ; le runner GitHub Actions n'installe PAS torch (wheel CPU trop lourd) -> job AI Engine Python failed sur 094d043
+- Fix minimal (87fc0c5) : pytest.importorskip("torch") APRÈS les assertions npz (roundtrip save/load/meta/totaux reste vérifié sans torch ; seule la reconstruction Dataset bit-exacte exige torch, déjà le pattern de test_train_smoke)
+- Validation : simulation runner sans torch (PYTHONPATH + sitecustomize sys.modules["torch"]=None) -> 2 passed 2 skipped ; avec torch -> 4 passed ; ruff clean
+- Push 094d043..87fc0c5 (inclut 2 commits auto UUID de la plateforme) ; CI GitHub : 87fc0c5 completed success (094d043 failure avant)
+- Persistance vérifiée : backend = mémoire seule (PostgreSQL optionnel via cfg.DBURL, pas de PG dans le sandbox) -> démos éphémères aux redémarrages -> scripts/seed_demos.sh ré-exécutable créé (skip si le nom existe, idempotent)
+- Seed live : DEMO1-Cauchemar-Astar (astar 45 ms), DEMO2-Cauchemar-RL (strategy rl CONFIRMÉE au log, 5,5 s), DEMO3-KiCad-complex_hierarchy (52 nets, 68 comp., A* 4,9 s), DEMO5-KiCad-video-588nets (189 comp., 2118 pads, 4 couches ; routage A* en cours côté serveur, ~5 min) ; DEMO4-pic_programmer importé mais 0 nets parsés (fichier probablement version KiCad non supportée) -> supprimé (DELETE 204)
+- Vérifs : layouts tracks/vias (DEMO3 242/353, vidéo 7932/808 en cours), log serveur JSON confirme strategy rl pour DEMO2
+
+Stage Summary:
+- CI de nouveau VERT sur main (87fc0c5) ; leçon : tout test torch doit passer importorskip, le CI n'installe jamais torch
+- 4 démos en ligne sur http://localhost:3000/pages/project-manager (admin/admin) : cauchemar A*, cauchemar RL, complex_hierarchy A*, vidéo A* (fin ~5 min) ; seed ré-exécutable après tout redémarrage (bash scripts/seed_demos.sh)
+- Restant : parser KiCad pic_programmer (0 nets) à investiguer ; PAT GitHub toujours à révoquer ; round-trip complet toujours en attente
