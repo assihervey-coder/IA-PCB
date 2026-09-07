@@ -203,6 +203,47 @@ func RotatePoint(p, center Point, deg float64) Point {
 	}
 }
 
+// ContainsPoint reports whether p lies inside the polygon (ray casting,
+// boundary treated as inside). The polygon must have at least 3 vertices.
+func (p Polygon) ContainsPoint(q Point) bool {
+	n := len(p)
+	if n < 3 {
+		return false
+	}
+	inside := false
+	for i, j := 0, n-1; i < n; j, i = i, i+1 {
+		// Point on an edge counts as inside.
+		if PointSegmentDistance(q, p[j], p[i]) < Epsilon {
+			return true
+		}
+		pi, pj := p[i], p[j]
+		if (pi.Y > q.Y) != (pj.Y > q.Y) {
+			xInt := (pj.X-pi.X)*(q.Y-pi.Y)/(pj.Y-pi.Y) + pi.X
+			if q.X < xInt {
+				inside = !inside
+			}
+		}
+	}
+	return inside
+}
+
+// DistanceToPoint returns the distance from q to the closest boundary
+// segment; 0 when q lies inside the polygon.
+func (p Polygon) DistanceToPoint(q Point) float64 {
+	if p.ContainsPoint(q) {
+		return 0
+	}
+	best := math.MaxFloat64
+	n := len(p)
+	for i := 0; i < n; i++ {
+		j := (i + 1) % n
+		if d := PointSegmentDistance(q, p[i], p[j]); d < best {
+			best = d
+		}
+	}
+	return best
+}
+
 // NormalizeDeg normalizes an angle to [0, 360).
 func NormalizeDeg(deg float64) float64 {
 	d := math.Mod(deg, 360)

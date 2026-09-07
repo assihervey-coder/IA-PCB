@@ -27,10 +27,10 @@ type presenceMessage struct {
 
 // inboundPresence is the client-sent presence update.
 type inboundPresence struct {
-	Type      string         `json:"type"`
-	User      string         `json:"user"`
-	Cursor    presenceCursor `json:"cursor"`
-	Tool      string         `json:"tool"`
+	Type   string         `json:"type"`
+	User   string         `json:"user"`
+	Cursor presenceCursor `json:"cursor"`
+	Tool   string         `json:"tool"`
 }
 
 // maxUserName bounds the display name sent by clients.

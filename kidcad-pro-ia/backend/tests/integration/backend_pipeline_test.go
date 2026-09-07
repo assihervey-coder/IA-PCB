@@ -302,6 +302,10 @@ type mockAI struct{}
 
 func (m *mockAI) Health(ctx context.Context) error { return nil }
 
+func (m *mockAI) EngineInfo(ctx context.Context) (layoutapp.EngineInfo, error) {
+	return layoutapp.EngineInfo{Status: "ok", Device: "cpu"}, nil
+}
+
 func (m *mockAI) PlanPlacement(ctx context.Context, b *domainlayout.Board,
 	comps []domainschematic.Component, strategy string) ([]domainlayout.PlacedComponent, error) {
 	placed := make([]domainlayout.PlacedComponent, 0, len(comps))

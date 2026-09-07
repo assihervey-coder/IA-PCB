@@ -16,7 +16,7 @@ var ErrDuplicateComponentRef = errors.New("layout : référence de composant dup
 const DefaultBoardHeightMM = 1.6
 
 // Board is the physical aggregate of a PCB design: placed components, copper
-// tracks and vias, inside a rectangular outline.
+// tracks and vias, copper pours (ground planes) inside a rectangular outline.
 type Board struct {
 	WidthMM    float64
 	HeightMM   float64
@@ -26,6 +26,7 @@ type Board struct {
 	Components []PlacedComponent
 	Tracks     []Track
 	Vias       []Via
+	Pours      []CopperPour
 }
 
 // NewBoard creates a board with canonical layer names (F.Cu, In1.Cu, B.Cu).
@@ -48,6 +49,7 @@ func NewBoard(widthMM, heightMM float64, layerCount int) (*Board, error) {
 		Components: []PlacedComponent{},
 		Tracks:     []Track{},
 		Vias:       []Via{},
+		Pours:      []CopperPour{},
 	}, nil
 }
 

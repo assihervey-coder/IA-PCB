@@ -37,7 +37,7 @@ func TestExamineProducesSaneReport(t *testing.T) {
 	erc := verificationapp.NewERCChecker(repo)
 	thermal := verificationapp.NewThermalChecker(repo, 25.0)
 	si := verificationapp.NewSIChecker(repo)
-	svc := NewDoctorService(repo, drc, erc, thermal, si, nil)
+	svc := NewDoctorService(repo, drc, erc, thermal, si, nil, nil)
 
 	rep, err := svc.Examine(context.Background(), id)
 	if err != nil {
@@ -76,7 +76,7 @@ func TestExamineRejectsBoardlessProject(t *testing.T) {
 	repo := memory.NewProjectRepository()
 	p, _ := domainproject.New("Empty", "", 2)
 	_ = repo.Create(context.Background(), p)
-	svc := NewDoctorService(repo, nil, nil, nil, nil, nil)
+	svc := NewDoctorService(repo, nil, nil, nil, nil, nil, nil)
 	if _, err := svc.Examine(context.Background(), p.ID()); err == nil {
 		t.Fatal("erreur attendue pour un projet sans carte")
 	}

@@ -39,21 +39,21 @@ type SnapshotMeta struct {
 
 // BoardMeta summarizes the captured board.
 type BoardMeta struct {
-	WidthMM     float64 `json:"width_mm"`
-	HeightMM    float64 `json:"height_mm"`
-	Components  int     `json:"components"`
-	Tracks      int     `json:"tracks"`
-	Vias        int     `json:"vias"`
-	LengthMM    float64 `json:"length_mm"`
-	MinTrackMM  float64 `json:"min_track_mm"`
+	WidthMM    float64 `json:"width_mm"`
+	HeightMM   float64 `json:"height_mm"`
+	Components int     `json:"components"`
+	Tracks     int     `json:"tracks"`
+	Vias       int     `json:"vias"`
+	LengthMM   float64 `json:"length_mm"`
+	MinTrackMM float64 `json:"min_track_mm"`
 }
 
 // DiffEntry is one structural change between a snapshot and the current board.
 type DiffEntry struct {
-	Kind   string  `json:"kind"` // "component" | "track" | "via" | "rule"
-	Change string  `json:"change"` // "added" | "removed" | "moved" | "changed"
-	Target string  `json:"target"`
-	Detail string  `json:"detail"`
+	Kind   string `json:"kind"`   // "component" | "track" | "via" | "rule"
+	Change string `json:"change"` // "added" | "removed" | "moved" | "changed"
+	Target string `json:"target"`
+	Detail string `json:"detail"`
 }
 
 // Diff is the comparison result.
@@ -114,10 +114,10 @@ func (s *Service) Capture(ctx context.Context, projectID, label string) (*Snapsh
 	}
 
 	meta := SnapshotMeta{
-		ID:    utils.NewID(),
-		Label: label,
-		At:    time.Now().UTC(),
-		Board: summarize(p.Board()),
+		ID:        utils.NewID(),
+		Label:     label,
+		At:        time.Now().UTC(),
+		Board:     summarize(p.Board()),
 		RuleCount: len(cs.Rules),
 	}
 

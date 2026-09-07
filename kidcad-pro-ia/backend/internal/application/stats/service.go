@@ -45,22 +45,22 @@ type BoardStats struct {
 
 // LayerUsage aggregates the copper of one layer.
 type LayerUsage struct {
-	Layer      int     `json:"layer"`
-	Name       string  `json:"name"`
-	Tracks     int     `json:"tracks"`
-	LengthMM   float64 `json:"length_mm"`
-	ViasUsed   int     `json:"vias_touching"`
+	Layer    int     `json:"layer"`
+	Name     string  `json:"name"`
+	Tracks   int     `json:"tracks"`
+	LengthMM float64 `json:"length_mm"`
+	ViasUsed int     `json:"vias_touching"`
 }
 
 // NetStat is one net's copper footprint.
 type NetStat struct {
-	Name       string  `json:"name"`
-	Class      string  `json:"class"`
-	Tracks     int     `json:"tracks"`
-	LengthMM   float64 `json:"length_mm"`
-	Vias       int     `json:"vias"`
-	Routed     bool    `json:"routed"`
-	PadCount   int     `json:"pad_count"`
+	Name     string  `json:"name"`
+	Class    string  `json:"class"`
+	Tracks   int     `json:"tracks"`
+	LengthMM float64 `json:"length_mm"`
+	Vias     int     `json:"vias"`
+	Routed   bool    `json:"routed"`
+	PadCount int     `json:"pad_count"`
 }
 
 // NetClassStat aggregates nets per class.

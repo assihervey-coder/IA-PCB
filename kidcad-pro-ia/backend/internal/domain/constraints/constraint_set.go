@@ -88,6 +88,77 @@ func (cs *ConstraintSet) Value(t RuleType, netClass string, layer int) (float64,
 	return rules[0].ValueMM, true
 }
 
+// ClassRules returns every rule scoped to the given net class (the
+// wildcard rules are excluded).
+func (cs *ConstraintSet) ClassRules(class string) []Rule {
+	var out []Rule
+	for _, r := range cs.Rules {
+		if r.Scope.NetClass == class && class != AnyNetClass {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// Classes returns the distinct net classes carrying at least one scoped
+// rule, sorted alphabetically.
+func (cs *ConstraintSet) Classes() []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range cs.Rules {
+		if r.Scope.NetClass != AnyNetClass && r.Scope.NetClass != "" && !seen[r.Scope.NetClass] {
+			seen[r.Scope.NetClass] = true
+			out = append(out, r.Scope.NetClass)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// classRuleLabels maps a rule type onto its human-readable name template.
+var classRuleLabels = map[RuleType]string{
+	RuleMinClearance:   "Isolation minimale (classe %s)",
+	RuleMinTrackWidth:  "Largeur minimale (classe %s)",
+	RuleMaxTrackWidth:  "Largeur maximale (classe %s)",
+	RuleMinViaDiameter: "Via minimal (classe %s)",
+	RuleMinDrill:       "Perçage minimal (classe %s)",
+	RuleMinAnnularRing: "Anneau annulaire minimal (classe %s)",
+	RuleEdgeClearance:  "Distance au bord (classe %s)",
+}
+
+// SetClassRule upserts a design rule scoped to a net class. The identifier
+// is derived deterministically ("class-<classe>-<type>") so repeated calls
+// update the rule in place instead of duplicating it.
+func (cs *ConstraintSet) SetClassRule(t RuleType, class string, mm float64) (Rule, error) {
+	class = strings.TrimSpace(class)
+	if class == "" || class == AnyNetClass {
+		return Rule{}, fmt.Errorf("contraintes : classe de nets invalide %q", class)
+	}
+	if mm <= 0 {
+		return Rule{}, fmt.Errorf("contraintes : valeur %.3f mm invalide pour %s/%s", mm, class, t)
+	}
+	label, ok := classRuleLabels[t]
+	if !ok {
+		return Rule{}, fmt.Errorf("contraintes : type de règle inconnu %q", t)
+	}
+	id := "class-" + strings.ToLower(class) + "-" + string(t)
+	for i := range cs.Rules {
+		if cs.Rules[i].ID == id {
+			cs.Rules[i].ValueMM = mm
+			return cs.Rules[i], nil
+		}
+	}
+	rule := Rule{
+		ID: id, Name: fmt.Sprintf(label, class),
+		Type: t, Scope: Scope{NetClass: class, Layer: AnyLayer},
+		ValueMM: mm, Severity: SeverityError, Enabled: true,
+	}
+	if err := cs.Add(rule); err != nil {
+		return Rule{}, err
+	}
+	return rule, nil
+}
+
 // SetMinTrackWidth upserts the min-track-width rule for a target: "all"
 // (or empty) rewrites the wildcard rule, a net-class name upserts a scoped
 // rule. Used by the Magic Copilot ("largeur de piste 0.3 mm").

@@ -12,6 +12,7 @@ import (
 
 	"github.com/kidcad/kidcad-pro-ia/backend/internal/domain/layout"
 	"github.com/kidcad/kidcad-pro-ia/backend/internal/domain/schematic"
+	"github.com/kidcad/kidcad-pro-ia/backend/internal/pkg/geometry"
 )
 
 const (
@@ -129,6 +130,21 @@ type ViaDTO struct {
 	Drill     float64 `json:"drill"`
 }
 
+// PourDTO is a filled copper region (ground plane / pour).
+type PourDTO struct {
+	ID          string     `json:"id"`
+	Net         string     `json:"net"`
+	Name        string     `json:"name,omitempty"`
+	Layer       int        `json:"layer"`
+	Outline     []PointDTO `json:"outline"`
+	ClearanceMM float64    `json:"clearance_mm"`
+	HatchMM     float64    `json:"hatch_mm,omitempty"`
+	IsGround    bool       `json:"is_ground,omitempty"`
+	FillPct     float64    `json:"fill_pct,omitempty"`
+	AreaMM2     float64    `json:"area_mm2,omitempty"`
+	Stitched    int        `json:"stitched,omitempty"`
+}
+
 // BoardDTO is the physical outline of the board.
 type BoardDTO struct {
 	WidthMM    float64  `json:"width_mm"`
@@ -144,6 +160,7 @@ type LayoutDTO struct {
 	Components []ComponentDTO          `json:"components"`
 	Tracks     []TrackDTO              `json:"tracks,omitempty"`
 	Vias       []ViaDTO                `json:"vias,omitempty"`
+	Pours      []PourDTO               `json:"pours,omitempty"`
 	Nets       []NetDTO                `json:"nets,omitempty"`
 }
 
@@ -326,6 +343,21 @@ func FromBoard(b *layout.Board) *LayoutDTO {
 			Diameter: v.Diameter, Drill: v.Drill,
 		})
 	}
+	dto.Pours = make([]PourDTO, 0, len(b.Pours))
+	for i := range b.Pours {
+		p := &b.Pours[i]
+		pd := PourDTO{
+			ID: p.ID, Net: p.Net, Name: p.Name, Layer: p.Layer,
+			ClearanceMM: p.ClearanceMM, HatchMM: p.HatchMM,
+			IsGround: p.IsGround, FillPct: p.FillPct,
+			AreaMM2: p.AreaMM2, Stitched: p.Stitched,
+			Outline: make([]PointDTO, 0, len(p.Outline)),
+		}
+		for _, pt := range p.Outline {
+			pd.Outline = append(pd.Outline, PointDTO{X: pt.X, Y: pt.Y})
+		}
+		dto.Pours = append(dto.Pours, pd)
+	}
 	return dto
 }
 
@@ -387,6 +419,21 @@ func ToBoard(dto *LayoutDTO) (*layout.Board, error) {
 			FromLayer: v.FromLayer, ToLayer: v.ToLayer,
 			Diameter: v.Diameter, Drill: v.Drill,
 		}); err != nil {
+			return nil, err
+		}
+	}
+	for _, p := range dto.Pours {
+		pour := layout.CopperPour{
+			ID: p.ID, Net: p.Net, Name: p.Name, Layer: p.Layer,
+			ClearanceMM: p.ClearanceMM, HatchMM: p.HatchMM,
+			IsGround: p.IsGround, FillPct: p.FillPct,
+			AreaMM2: p.AreaMM2, Stitched: p.Stitched,
+			Outline: make([]geometry.Point, 0, len(p.Outline)),
+		}
+		for _, pt := range p.Outline {
+			pour.Outline = append(pour.Outline, geometry.Point{X: pt.X, Y: pt.Y})
+		}
+		if _, err := b.AddPour(pour); err != nil {
 			return nil, err
 		}
 	}

@@ -24,9 +24,20 @@ import (
 // maps it onto 503 {"error":{"code":"ai_unreachable"}}.
 var ErrAIUnreachable = errors.New("moteur IA injoignable")
 
+// EngineInfo is the runtime report of the AI engine (GetHealth RPC):
+// it tells whether a trained RL model is loaded and on which device the
+// inference runs. Surfaced by /healthz and by the Design Doctor.
+type EngineInfo struct {
+	Status      string `json:"status"`
+	Version     string `json:"version"`
+	Device      string `json:"device"`
+	ModelLoaded bool   `json:"model_loaded"`
+}
+
 // AIService is the port toward the AI engine ( KidCAD ai-engine, gRPC).
 type AIService interface {
 	Health(ctx context.Context) error
+	EngineInfo(ctx context.Context) (EngineInfo, error)
 	PlanPlacement(ctx context.Context, b *domainlayout.Board, comps []domainschematic.Component,
 		strategy string) ([]domainlayout.PlacedComponent, error)
 	RouteBoard(ctx context.Context, b *domainlayout.Board, nets []domainschematic.Net,

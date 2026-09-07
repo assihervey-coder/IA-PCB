@@ -79,16 +79,29 @@ func (c *Client) Close() error {
 
 // Health probes the engine within the configured timeout.
 func (c *Client) Health(ctx context.Context) error {
+	_, err := c.EngineInfo(ctx)
+	return err
+}
+
+// EngineInfo reports the engine runtime configuration (GetHealth RPC):
+// device d'inférence, modèle RL chargé ou non, version du service.
+func (c *Client) EngineInfo(ctx context.Context) (layoutapp.EngineInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
 	resp, err := c.stub.GetHealth(ctx, &pcbv1.HealthRequest{})
 	if err != nil {
-		return c.mapError(err, "health")
+		return layoutapp.EngineInfo{}, c.mapError(err, "health")
+	}
+	info := layoutapp.EngineInfo{
+		Status:      resp.GetStatus(),
+		Version:     resp.GetVersion(),
+		Device:      resp.GetDevice(),
+		ModelLoaded: resp.GetModelLoaded(),
 	}
 	if s := resp.GetStatus(); s != "" && s != "ok" && s != "degraded" {
-		return fmt.Errorf("ai : état du moteur inattendu %q", s)
+		return info, fmt.Errorf("ai : état du moteur inattendu %q", s)
 	}
-	return nil
+	return info, nil
 }
 
 // PlanPlacement asks the engine for component positions and maps them back

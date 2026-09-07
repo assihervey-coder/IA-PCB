@@ -180,6 +180,27 @@ func (d *Deps) handleERC(w http.ResponseWriter, r *http.Request) {
 // Conversions LayoutData <-> Board
 // --------------------------------------------------------------
 
+// poursToDTO maps domain pours onto the interchange DTO (used by the PUT
+// layout preservation path).
+func poursToDTO(pours []domainlayout.CopperPour) []pcbformat.PourDTO {
+	out := make([]pcbformat.PourDTO, 0, len(pours))
+	for i := range pours {
+		p := &pours[i]
+		pd := pcbformat.PourDTO{
+			ID: p.ID, Net: p.Net, Name: p.Name, Layer: p.Layer,
+			ClearanceMM: p.ClearanceMM, HatchMM: p.HatchMM,
+			IsGround: p.IsGround, FillPct: p.FillPct,
+			AreaMM2: p.AreaMM2, Stitched: p.Stitched,
+			Outline: make([]pcbformat.PointDTO, 0, len(p.Outline)),
+		}
+		for _, pt := range p.Outline {
+			pd.Outline = append(pd.Outline, pcbformat.PointDTO{X: pt.X, Y: pt.Y})
+		}
+		out = append(out, pd)
+	}
+	return out
+}
+
 // layoutDataToBoard rebuilds the board aggregate from the REST payload. The
 // outline falls back to the previous board (or 100×80, two layers) when the
 // payload omits it, and footprints of known references are restored from
@@ -234,6 +255,11 @@ func layoutDataToBoard(ld *LayoutData, prev *domainlayout.Board, projectLayers i
 			if _, ok := dto.Footprints[fp.Name]; !ok {
 				dto.Footprints[fp.Name] = footprintToDTO(fp)
 			}
+		}
+		// Les plans de masse suivent la même règle : un payload qui
+		// ne les mentionne pas les conserve (round-trip GET/PUT sûr).
+		if len(ld.Pours) == 0 && len(prev.Pours) > 0 {
+			dto.Pours = poursToDTO(prev.Pours)
 		}
 	}
 
