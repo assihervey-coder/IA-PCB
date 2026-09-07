@@ -8,12 +8,13 @@ import { useUIStore } from "@/lib/store/ui-store";
 import { Button } from "@/app/components/buttons/Button";
 import { downloadBlob } from "@/lib/utils/converters";
 
-type ExportKind = "gerber" | "bom" | "step";
+type ExportKind = "gerber" | "bom" | "step" | "odbpp";
 
 const DEFAULT_FILENAMES: Record<ExportKind, (projectId: string) => string> = {
   gerber: (id) => `yahriacad-${id}-gerber.zip`,
   bom: (id) => `yahriacad-${id}-bom.csv`,
   step: (id) => `yahriacad-${id}.step`,
+  odbpp: (id) => `yahriacad-${id}-odbpp.tgz`,
 };
 
 const ACCEPTED_IMPORT = ".kicad_pcb,.brd,.sch,.net,.yahriacad.json";
@@ -54,6 +55,8 @@ export default function ExportPage() {
         download = await api.exportGerber(effectiveId);
       } else if (kind === "bom") {
         download = await api.exportBOM(effectiveId);
+      } else if (kind === "odbpp") {
+        download = await api.exportODBPP(effectiveId);
       } else {
         download = await api.exportSTEP(effectiveId);
       }
@@ -178,6 +181,24 @@ export default function ExportPage() {
                 </Button>
               </div>
               <span className="export-note">application/step — AP214</span>
+            </div>
+
+            <div className="export-card panel">
+              <div className="export-title">Job ODB++ (v8 simplifié)</div>
+              <p className="export-desc">
+                Job ODB++ complet en .tgz — matrix, netlist, features cuivre par couche (L/P/V),
+                placements composants — le format d&apos;échange des télématics et des fablabs avancés.
+              </p>
+              <div className="export-actions">
+                <Button
+                  data-testid="export-odbpp-btn"
+                  onClick={() => void runExport("odbpp")}
+                  disabled={busyExport !== null}
+                >
+                  {busyExport === "odbpp" ? "Préparation…" : "Télécharger"}
+                </Button>
+              </div>
+              <span className="export-note">application/gzip — ODB++ v8 simplifié (UNITS=UM)</span>
             </div>
           </div>
 

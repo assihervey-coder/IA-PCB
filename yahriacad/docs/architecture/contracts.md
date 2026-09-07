@@ -513,3 +513,58 @@ de routage `POST /api/v1/projects/{id}/route` avec `nets` réduit à un seul
 nom et `strategy` au choix (`astar` par défaut depuis l'éditeur, `rl` quand
 le modèle est chargé). Le bouton ⚡ de la liste des nets de l'éditeur PCB
 démarrer le job, suit son état puis rafraîchit le layout.
+
+## 13. Endpoints additifs (hors contrat figé §2) — benchmark Arena A* vs RL et export ODB++ (v0.5)
+
+### Benchmark Arena A* vs RL (un clic)
+
+| Route | Rôle |
+|---|---|
+| `POST /api/v1/projects/{id}/arena/benchmark` | même carnet de nets routé par **deux moteurs**, comparaison chiffrée |
+
+Le carnet (nets à plus large envergure, plafonné à 12 comme l'arène) est
+routé deux fois : par l'**A\* local** (déterministe, obstacles collectés
+sur la carte) puis par le **routeur RL du moteur IA** (`RouteBoard`
+stratégie `rl`, contraintes du projet transmises — classes de nets
+comprises). Les deux cartes de performance (`completed`, longueur totale,
+vias, durée, score) utilisent la formule de l'arène ; le verdict
+`astar`/`rl`/`draw` met à jour l'**ELO** des deux camps et le récit en
+français est renvoyé dans `log`.
+
+- Erreur `503 {"error":{"code":"rl_model_not_loaded"}}` si aucun
+  checkpoint n'est chargé — jamais de duel A* contre A* déguisé : le
+  benchmark exige un modèle réellement chargé (entraîner avec
+  `make train-router`, puis `POST /api/v1/ai/model/reload`).
+- Événements de progression publiés sur le canal WebSocket
+  `arena-benchmark-<projectId>`.
+- ELO pairwise `astar`/`rl` persisté pour la durée du process (même
+  leaderboard que l'arène, `GET /api/v1/arena/leaderboard`).
+- UI : bouton **🧪 A* vs RL** de la MagicBar (⌘K).
+
+### Export ODB++ (v8 simplifié)
+
+| Route | Rôle |
+|---|---|
+| `GET /api/v1/projects/{id}/export/odbpp` | job ODB++ complet empaqueté en **.tgz** |
+
+Arborescence produite (racine = répertoire du job) :
+
+```
+matrix/matrix                       TABLE + lignes de couches signal
+netlist/netlist                     UNIT { NET { SUBNET { NODE } } }
+steps/pcb/general/general           UNITS=UM + BOUNDS de la carte
+steps/pcb/symbols/symbols           symboles référencés (w/r/c, µm)
+steps/pcb/layers/pclkN/features     #Class = copper, UNITS=UM,
+                                    records P (pastilles), L (segments
+                                    de pistes), V (vias, d<perçage µm>)
+steps/pcb/layers/pclkN/components   COMP { PLACE_X/Y, ROTATION } (top/bottom)
+```
+
+Conventions et limites documentées du mode simplifié : unités entières en
+micromètres (`UNITS=UM`), pastilles traversant répétées sur chaque couche
+cuivre, composants traversant montés côté top, pas de records `C`
+(copper pour) ni `O` (contour) — le contour et les pourcases restent
+couverts par l'export Gerber. Le `.tgz` est servi en
+`application/gzip` avec l'en-tête `X-YahriaCad-File-Count`.
+
+- UI : carte **Job ODB++ (v8 simplifié)** de la page Export.

@@ -634,6 +634,78 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
 
+  /api/v1/projects/{id}/arena/benchmark:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    post:
+      tags: [IA]
+      summary: Benchmark A* vs RL (même carnet de nets)
+      description: |
+        Route le même carnet de nets deux fois — A* local (déterministe)
+        puis routeur RL du moteur IA (stratégie `rl`, contraintes du
+        projet transmises) — score les deux cartes avec la formule de
+        l'arène et met à jour l'ELO astar/rl. Exige un checkpoint RL
+        chargé (voir POST /api/v1/ai/model/reload).
+      operationId: arenaBenchmark
+      responses:
+        '200':
+          description: Rapport de benchmark (cartes astar + rl, verdict, ELO, récit)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  project_id: { type: string }
+                  nets: { type: array, items: { type: string } }
+                  astar:
+                    type: object
+                    description: Carte de performance (strategy, completed, total_length_mm, via_count, duration_ms, score, net_log)
+                  rl:
+                    type: object
+                    description: Même forme que astar
+                  winner: { type: string, enum: [astar, rl, draw] }
+                  margin: { type: number }
+                  elo:
+                    type: array
+                    items: { type: object }
+                  log: { type: array, items: { type: string } }
+                  at: { type: string }
+        '503':
+          description: Moteur IA injoignable ou checkpoint RL non chargé
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/projects/{id}/export/odbpp:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+    get:
+      tags: [Export]
+      summary: Export ODB++ (job .tgz simplifié v8)
+      description: |
+        Job ODB++ complet empaqueté en .tgz (format d'échange des
+        télématics) : matrix/matrix, netlist/netlist,
+        steps/pcb/general/general, steps/pcb/symbols/symbols, features
+        cuivre par couche (records L/P/V, UNITS=UM) et placements
+        composants (top/bottom). Structure simplifiée — voir
+        contracts.md §13.
+      operationId: exportODBPP
+      responses:
+        '200':
+          description: Archive .tgz du job ODB++
+          content:
+            application/gzip:
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Projet introuvable ou sans carte
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
   /api/v1/projects/{id}/export/bom:
     parameters:
       - $ref: '#/components/parameters/ProjectId'

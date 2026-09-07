@@ -425,6 +425,19 @@ export interface ArenaReport {
   at: string;
 }
 
+/** Benchmark A* (local) contre RL (moteur IA) — même carnet de nets. */
+export interface ArenaBenchmark {
+  project_id: string;
+  nets: string[];
+  astar: ArenaFighterCard;
+  rl: ArenaFighterCard;
+  winner: "astar" | "rl" | "draw";
+  margin: number;
+  elo: [ArenaStanding, ArenaStanding];
+  log: string[];
+  at: string;
+}
+
 // --------------------------------------------------------------
 // Pack WOW (endpoints additifs)
 // --------------------------------------------------------------

@@ -203,6 +203,46 @@ func (d *Deps) handleArena(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, arenaToDTO(rep))
 }
 
+// handleArenaBenchmark answers POST /api/v1/projects/{id}/arena/benchmark:
+// le même carnet de nets routé par l'A* local et par le routeur RL du
+// moteur IA, avec cartes de performance et mise à jour ELO.
+func (d *Deps) handleArenaBenchmark(w http.ResponseWriter, r *http.Request) {
+	if d.Arena == nil {
+		writeError(w, r, http.StatusServiceUnavailable, "internal", errNoService)
+		return
+	}
+	projectID := r.PathValue("id")
+	rep, err := d.Arena.Benchmark(r.Context(), projectID, func(net string, pct float64, msg string) {
+		if d.Hub != nil {
+			d.Hub.Publish("arena-benchmark-"+projectID, projectID, layoutapp.RouteProgress{
+				JobID: "arena-benchmark-" + projectID, Stage: "arena",
+				CurrentNet: net, Percent: pct, Message: msg,
+			})
+		}
+	})
+	if err != nil {
+		mapServiceError(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, arenaBenchmarkToDTO(rep))
+}
+
+func arenaBenchmarkToDTO(rep *arenaapp.BenchmarkReport) ArenaBenchmarkDTO {
+	return ArenaBenchmarkDTO{
+		ProjectID: rep.ProjectID,
+		Nets:      rep.Nets,
+		Astar:     arenaCardToDTO(rep.Astar),
+		RL:        arenaCardToDTO(rep.RL),
+		Winner:    rep.Winner,
+		Margin:    rep.Margin,
+		Elo: [2]ArenaStandingDTO{
+			arenaStandingToDTO(rep.Elo[0]), arenaStandingToDTO(rep.Elo[1]),
+		},
+		Log: rep.Log,
+		At:  rep.At.UTC().Format(time.RFC3339),
+	}
+}
+
 // handleArenaLeaderboard answers GET /api/v1/arena/leaderboard.
 func (d *Deps) handleArenaLeaderboard(w http.ResponseWriter, r *http.Request) {
 	if d.Arena == nil {

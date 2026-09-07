@@ -59,6 +59,7 @@ type Deps struct {
 	Gerber      *exportapp.GerberService
 	BOM         *exportapp.BOMService
 	STEP        *exportapp.STEPService
+	ODB         *exportapp.ODBService
 	Hub         *yahriacadws.Hub
 	Logger      *slog.Logger
 	Version     string
@@ -128,6 +129,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{id}/si", d.handleSI)
 	mux.HandleFunc("POST /api/v1/projects/{id}/impedance", d.handleImpedance)
 	mux.HandleFunc("POST /api/v1/projects/{id}/arena", d.handleArena)
+	mux.HandleFunc("POST /api/v1/projects/{id}/arena/benchmark", d.handleArenaBenchmark)
 	mux.HandleFunc("GET /api/v1/arena/leaderboard", d.handleArenaLeaderboard)
 
 	// Pack WOW (additif, hors contrat figé).
@@ -143,6 +145,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/gerber", d.handleExportGerber)
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/bom", d.handleExportBOM)
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/step", d.handleExportSTEP)
+	mux.HandleFunc("GET /api/v1/projects/{id}/export/odbpp", d.handleExportODBPP)
 
 	if d.Hub != nil {
 		mux.HandleFunc("GET /ws/v1/progress", d.Hub.ServeWS)
@@ -251,6 +254,10 @@ func mapServiceError(w http.ResponseWriter, r *http.Request, err error) bool {
 		writeError(w, r, http.StatusConflict, "conflict", err.Error())
 	case errors.Is(err, layoutapp.ErrAIUnreachable):
 		writeError(w, r, http.StatusServiceUnavailable, "ai_unreachable", err.Error())
+	case errors.Is(err, arenaapp.ErrModelNotLoaded):
+		// Benchmark demandé sans checkpoint RL chargé : l'action est
+		// comprise mais impossible en l'état (entraîner + recharger).
+		writeError(w, r, http.StatusServiceUnavailable, "rl_model_not_loaded", err.Error())
 	default:
 		writeError(w, r, http.StatusInternalServerError, "internal", err.Error())
 	}

@@ -84,6 +84,36 @@ func (s *Service) Nightmare(ctx context.Context) (*Report, error) {
 
 	// Schéma : nets d'alimentation, bus I2C et deux nets sans routage.
 	sch := domainschematic.New("cauchemar")
+	// Les composants sont déclarés côté schéma avec les mêmes décalages
+	// de broches que leurs empreintes board (miroir obligatoire : l'arène
+	// et le benchmark localisent les broches via sch.ComponentByRef).
+	addComp := func(ref string, pins ...domainschematic.Pin) {
+		_ = sch.AddComponent(domainschematic.Component{Ref: ref, Pins: pins})
+	}
+	addComp("U1",
+		domainschematic.Pin{Number: "1", Name: "SDA", X: -1.905, Y: 2.7},
+		domainschematic.Pin{Number: "2", Name: "SCL", X: -0.635, Y: 2.7},
+		domainschematic.Pin{Number: "4", Name: "GND", X: 1.905, Y: 2.7},
+		domainschematic.Pin{Number: "8", Name: "VCC", X: -1.905, Y: -2.7},
+	)
+	addComp("J1",
+		domainschematic.Pin{Number: "1", Name: "VCC", X: -3, Y: 0},
+		domainschematic.Pin{Number: "2", Name: "GND", X: -1, Y: 0},
+		domainschematic.Pin{Number: "3", Name: "SDA", X: 1, Y: 0},
+		domainschematic.Pin{Number: "4", Name: "SCL", X: 3, Y: 0},
+	)
+	addComp("R1",
+		domainschematic.Pin{Number: "1", Name: "A", X: -0.8, Y: 0},
+		domainschematic.Pin{Number: "2", Name: "B", X: 0.8, Y: 0},
+	)
+	addComp("R2",
+		domainschematic.Pin{Number: "1", Name: "A", X: -0.8, Y: 0},
+		domainschematic.Pin{Number: "2", Name: "B", X: 0.8, Y: 0},
+	)
+	addComp("C1",
+		domainschematic.Pin{Number: "1", Name: "A", X: -0.8, Y: 0},
+		domainschematic.Pin{Number: "2", Name: "B", X: 0.8, Y: 0},
+	)
 	addNet := func(name string, class domainschematic.NetClass, pins ...domainschematic.PinRef) {
 		_ = sch.AddNet(domainschematic.Net{Name: name, Class: class, Connections: pins})
 	}

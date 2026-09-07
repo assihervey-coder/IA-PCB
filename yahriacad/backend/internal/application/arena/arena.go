@@ -92,6 +92,7 @@ type EventSink func(net string, percent float64, message string)
 type ArenaService struct {
 	projects domainproject.Repository
 	log      *slog.Logger
+	ai       AIEngine // optionnel : port du moteur IA (fighter RL)
 
 	mu          sync.Mutex
 	leaderboard map[string]*Standing

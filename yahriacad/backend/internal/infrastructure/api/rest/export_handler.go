@@ -148,3 +148,31 @@ func (d *Deps) handleExportSTEP(w http.ResponseWriter, r *http.Request) {
 		fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(path)))
 	_, _ = w.Write(payload)
 }
+
+// handleExportODBPP answers GET /api/v1/projects/{id}/export/odbpp with
+// the .tgz ODB++ job produced by the export use case.
+func (d *Deps) handleExportODBPP(w http.ResponseWriter, r *http.Request) {
+	if d.ODB == nil {
+		writeError(w, r, http.StatusServiceUnavailable, "internal", errNoService)
+		return
+	}
+
+	projectID := r.PathValue("id")
+	tgzPath, files, err := d.ODB.ExportToTgz(r.Context(), projectID)
+	if err != nil {
+		mapServiceError(w, r, err)
+		return
+	}
+
+	payload, err := os.ReadFile(tgzPath)
+	if err != nil {
+		writeError(w, r, http.StatusInternalServerError, "internal", "lecture de l'archive : "+err.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(tgzPath)))
+	w.Header().Set("X-YahriaCad-File-Count", strconv.Itoa(len(files)))
+	_, _ = w.Write(payload)
+}

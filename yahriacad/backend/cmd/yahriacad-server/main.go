@@ -118,12 +118,16 @@ func main() {
 	gerberSvc := exportapp.NewGerberService(repo, writer.NewGerberWriter(), cfg.DataDir, log)
 	bomSvc := exportapp.NewBOMService(repo, log)
 	stepSvc := exportapp.NewSTEPService(repo, writer.NewStepWriter(), cfg.DataDir, log)
+	odbSvc := exportapp.NewODBService(repo, writer.NewODBPPWriter(), cfg.DataDir, log)
 
 	// Magic Pack : copilot langage naturel, thermique, oracle d'œil, arène.
 	magicSvc := magicapp.NewMagicService(repo, log)
 	thermalSvc := verificationapp.NewThermalChecker(repo, 25.0)
 	siSvc := verificationapp.NewSIChecker(repo)
 	arenaSvc := arenaapp.NewArenaService(repo, log)
+	// Benchmark A* vs RL : le fighter RL passe par le moteur IA (le
+	// championnat classique greedy/astar reste purement local).
+	arenaSvc.AttachAI(aiService)
 
 	// Pack WOW : auto-healer DRC, design doctor, oracle DFM, time machine,
 	// stats live (additif, hors contrat figé).
@@ -164,6 +168,7 @@ func main() {
 		Gerber:      gerberSvc,
 		BOM:         bomSvc,
 		STEP:        stepSvc,
+		ODB:         odbSvc,
 		Hub:         hub,
 		Logger:      log,
 		Version:     version,

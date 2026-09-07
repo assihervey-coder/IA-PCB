@@ -76,3 +76,6 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Checkpoints générés localement (entraînement) — jamais committés.
+ai-engine/training/router/model_v1.pt

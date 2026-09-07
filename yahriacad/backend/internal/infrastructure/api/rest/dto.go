@@ -793,3 +793,17 @@ type StatsReportDTO struct {
 	NetClasses     []StatsNetClassDTO   `json:"net_classes"`
 	DurationMS     int64                `json:"duration_ms"`
 }
+
+// ArenaBenchmarkDTO mirrors arena.BenchmarkReport : le duel A* (local)
+// contre RL (moteur IA) sur le même carnet de nets.
+type ArenaBenchmarkDTO struct {
+	ProjectID string              `json:"project_id"`
+	Nets      []string            `json:"nets"`
+	Astar     ArenaCardDTO        `json:"astar"`
+	RL        ArenaCardDTO        `json:"rl"`
+	Winner    string              `json:"winner"`
+	Margin    float64             `json:"margin"`
+	Elo       [2]ArenaStandingDTO `json:"elo"`
+	Log       []string            `json:"log"`
+	At        string              `json:"at"`
+}

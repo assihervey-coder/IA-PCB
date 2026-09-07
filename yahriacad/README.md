@@ -195,6 +195,7 @@ Cinq fonctions d'intelligence embarquée, testées et déterministes :
 | 🌡️ Thermal Ghost | `POST .../thermal` | carte thermique stationnaire (Gauss-Seidel), hotspots classés, what-if |
 | 📡 Eye Oracle | `POST .../si` | impédance Z0, délai, budget de réflexion, ouverture d'œil estimée à 1 Gbps |
 | ⚔️ AI Arena | `POST .../arena` | duel de routeurs greedy vs A*, récit WebSocket, classement ELO |
+| 🧪 Benchmark A* vs RL | `POST .../arena/benchmark` + bouton « 🧪 A* vs RL » | le même carnet de nets routé par l'A\* local **et** le routeur RL (PyTorch) du moteur IA, cartes de performance, verdict et ELO pairwise — exige un checkpoint chargé (`503 rl_model_not_loaded` sinon) |
 | 🧬 EvoPlace | ai-engine | placement génétique (HPWL + pénalité de recouvrement), streaming par génération |
 
 Côté frontend : palette **⌘K** (MagicBar) avec aperçu des actions, exécution
@@ -246,6 +247,7 @@ détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/arc
 | ⚡ Routage interactif au net | éditeur PCB, bouton ⚡ par net | route **un seul net à la demande** (`POST .../route {"nets":["NET"]}`) : règles de classe appliquées, job suivi puis layout rafraîchi automatiquement — sans quitter l'éditeur |
 | 🤖 Modèle RL (PyTorch) pilotable | `GET/POST /api/v1/ai/model[/reload]` + panneau « Modèle RL » | état détaillé du checkpoint (device, paramètres, horodatage, stratégie effective) et **rechargement à chaud** — basculez sur un `.pt` fraîchement entraîné (`make train-router`) sans redémarrer le moteur ; en cas d'échec le modèle précédent et le repli A* sont conservés |
 | 🔌 Contrat gRPC étendu (additif) | `yahriacad.pcb.v1` | deux nouvelles RPC `GetModelInfo` / `ReloadModel`, messages existants inchangés ; stubs Go + Python régénérés (`make proto`) |
+| 📦 Export ODB++ | `GET .../export/odbpp` + carte « Job ODB++ » | job ODB++ v8 simplifié en .tgz — matrix, netlist, features cuivre par couche (L/P/V), placements composants — le format d'échange des télématics (contracts §13) |
 
 ## Documentation
 

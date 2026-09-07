@@ -6,6 +6,7 @@
  * affiche un aperçu des actions, puis les exécute sur validation.
  * Raccourcis secondaires : 🌡️ thermique, 📡 eye oracle, ⚔️ arène.
  */
+import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/lib/api/rest-client";
 import type { MagicResult } from "@/lib/api/types";
@@ -188,6 +189,34 @@ export function MagicBar() {
     }
   }, [pushToast, requireProject]);
 
+  /** Benchmark un clic : A* local contre le routeur RL du moteur IA. */
+  const quickBenchmark = useCallback(async () => {
+    const pid = requireProject();
+    if (!pid) return;
+    setBusy(true);
+    pushToast("🧪 Benchmark A* vs RL en cours…", "info");
+    try {
+      const res = await api.arenaBenchmark(pid);
+      const winner =
+        res.winner === "draw" ? "Match nul !" : `${res.winner.toUpperCase()} gagne`;
+      pushToast(
+        `🧪 ${winner} — A* ${res.astar.completed}/${res.nets.length} nets · RL ${res.rl.completed}/${res.nets.length} (ELO ${res.elo[0].rating.toFixed(0)}/${res.elo[1].rating.toFixed(0)})`,
+        "success",
+      );
+    } catch (err) {
+      const detail = axios.isAxiosError(err)
+        ? ((err.response?.data as { error?: { message?: string } } | undefined)?.error?.message ?? "")
+        : "";
+      if (detail.includes("modèle RL non chargé")) {
+        pushToast("Aucun checkpoint RL chargé — entraînez-le (make train-router) puis ⟳ Recharger le modèle.", "error");
+      } else {
+        pushToast("Benchmark indisponible (moteur IA ou netlist requis)", "error");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }, [pushToast, requireProject]);
+
   /** Dictée vocale : « place R1 près de U3 » à la voix, puis exécution. */
   const toggleVoice = useCallback(() => {
     if (listening) {
@@ -288,6 +317,14 @@ export function MagicBar() {
               </button>
               <button type="button" onClick={quickArena} disabled={busy}>
                 ⚔️ Arène IA
+              </button>
+              <button
+                type="button"
+                onClick={quickBenchmark}
+                disabled={busy}
+                title="Route le même carnet de nets avec l'A* local et le routeur RL (PyTorch) puis compare les scores"
+              >
+                🧪 A* vs RL
               </button>
             </div>
 

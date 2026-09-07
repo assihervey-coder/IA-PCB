@@ -1,8 +1,7 @@
 from google.protobuf.internal import containers as _containers
 from google.protobuf import descriptor as _descriptor
 from google.protobuf import message as _message
-from collections.abc import Iterable as _Iterable, Mapping as _Mapping
-from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
+from typing import ClassVar as _ClassVar, Iterable as _Iterable, Mapping as _Mapping, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
@@ -106,7 +105,7 @@ class ComponentSpec(_message.Message):
     fixed: bool
     bbox_mm: BBox
     height_mm: float
-    def __init__(self, ref: _Optional[str] = ..., footprint: _Optional[str] = ..., position: _Optional[_Union[Point, _Mapping]] = ..., rotation_deg: _Optional[float] = ..., fixed: _Optional[bool] = ..., bbox_mm: _Optional[_Union[BBox, _Mapping]] = ..., height_mm: _Optional[float] = ...) -> None: ...
+    def __init__(self, ref: _Optional[str] = ..., footprint: _Optional[str] = ..., position: _Optional[_Union[Point, _Mapping]] = ..., rotation_deg: _Optional[float] = ..., fixed: bool = ..., bbox_mm: _Optional[_Union[BBox, _Mapping]] = ..., height_mm: _Optional[float] = ...) -> None: ...
 
 class NetSpec(_message.Message):
     __slots__ = ("name", "net_class", "pads", "min_track_width_mm", "clearance_mm")
@@ -172,7 +171,7 @@ class RouteNetResult(_message.Message):
     length_mm: float
     completed: bool
     drc_violations: int
-    def __init__(self, net: _Optional[str] = ..., segments: _Optional[_Iterable[_Union[TrackSegment, _Mapping]]] = ..., vias: _Optional[_Iterable[_Union[Via, _Mapping]]] = ..., length_mm: _Optional[float] = ..., completed: _Optional[bool] = ..., drc_violations: _Optional[int] = ...) -> None: ...
+    def __init__(self, net: _Optional[str] = ..., segments: _Optional[_Iterable[_Union[TrackSegment, _Mapping]]] = ..., vias: _Optional[_Iterable[_Union[Via, _Mapping]]] = ..., length_mm: _Optional[float] = ..., completed: bool = ..., drc_violations: _Optional[int] = ...) -> None: ...
 
 class OptimizeRequest(_message.Message):
     __slots__ = ("board", "nets", "routes", "objectives")
@@ -204,7 +203,7 @@ class ProgressEvent(_message.Message):
     partial: RouteNetResult
     done: bool
     error: str
-    def __init__(self, job_id: _Optional[str] = ..., stage: _Optional[str] = ..., current_net: _Optional[str] = ..., percent: _Optional[float] = ..., message: _Optional[str] = ..., partial: _Optional[_Union[RouteNetResult, _Mapping]] = ..., done: _Optional[bool] = ..., error: _Optional[str] = ...) -> None: ...
+    def __init__(self, job_id: _Optional[str] = ..., stage: _Optional[str] = ..., current_net: _Optional[str] = ..., percent: _Optional[float] = ..., message: _Optional[str] = ..., partial: _Optional[_Union[RouteNetResult, _Mapping]] = ..., done: bool = ..., error: _Optional[str] = ...) -> None: ...
 
 class HealthRequest(_message.Message):
     __slots__ = ()
@@ -220,7 +219,7 @@ class HealthResponse(_message.Message):
     version: str
     device: str
     model_loaded: bool
-    def __init__(self, status: _Optional[str] = ..., version: _Optional[str] = ..., device: _Optional[str] = ..., model_loaded: _Optional[bool] = ...) -> None: ...
+    def __init__(self, status: _Optional[str] = ..., version: _Optional[str] = ..., device: _Optional[str] = ..., model_loaded: bool = ...) -> None: ...
 
 class ModelInfoRequest(_message.Message):
     __slots__ = ()
@@ -248,7 +247,7 @@ class ModelInfo(_message.Message):
     param_count: int
     torch_available: bool
     strategy: str
-    def __init__(self, loaded: _Optional[bool] = ..., device: _Optional[str] = ..., checkpoint_path: _Optional[str] = ..., checkpoint_mtime: _Optional[str] = ..., size_bytes: _Optional[int] = ..., in_channels: _Optional[int] = ..., n_actions: _Optional[int] = ..., param_count: _Optional[int] = ..., torch_available: _Optional[bool] = ..., strategy: _Optional[str] = ...) -> None: ...
+    def __init__(self, loaded: bool = ..., device: _Optional[str] = ..., checkpoint_path: _Optional[str] = ..., checkpoint_mtime: _Optional[str] = ..., size_bytes: _Optional[int] = ..., in_channels: _Optional[int] = ..., n_actions: _Optional[int] = ..., param_count: _Optional[int] = ..., torch_available: bool = ..., strategy: _Optional[str] = ...) -> None: ...
 
 class ReloadModelRequest(_message.Message):
     __slots__ = ("checkpoint_path",)
@@ -264,4 +263,4 @@ class ReloadModelResponse(_message.Message):
     loaded: bool
     message: str
     info: ModelInfo
-    def __init__(self, loaded: _Optional[bool] = ..., message: _Optional[str] = ..., info: _Optional[_Union[ModelInfo, _Mapping]] = ...) -> None: ...
+    def __init__(self, loaded: bool = ..., message: _Optional[str] = ..., info: _Optional[_Union[ModelInfo, _Mapping]] = ...) -> None: ...

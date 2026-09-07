@@ -4,9 +4,13 @@
 # ==============================================================
 
 numpy>=1.24
-grpcio>=1.60
-grpcio-tools>=1.60
-protobuf>=4.25,<6
+# Les versions de la toolchain gRPC sont ÉPINGLÉES : les stubs de
+# shared/gen/python sont générés à la version ci-dessous (protoc embarqué)
+# et la CI vérifie leur dérive en régénérant avec ces mêmes versions.
+# Après un changement de pin : make proto + commit des stubs régénérés.
+grpcio==1.71.2
+grpcio-tools==1.71.2
+protobuf>=5.29,<6
 PyYAML>=6.0
 
 # Tests

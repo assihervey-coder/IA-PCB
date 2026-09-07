@@ -7,6 +7,7 @@ import type {
   AIStrategy,
   ArenaReport,
   ArenaStanding,
+  ArenaBenchmark,
   AutoFixResult,
   AIModelInfo,
   AIModelReloadResult,
@@ -192,6 +193,11 @@ export const api = {
     return requestBlob(`/projects/${id(projectId)}/export/step`);
   },
 
+  /** Job ODB++ simplifié (.tgz) — matrix, netlist, features, placements. */
+  async exportODBPP(projectId: string): Promise<ExportDownload> {
+    return requestBlob(`/projects/${id(projectId)}/export/odbpp`);
+  },
+
   // ------------------------------------------------------------
   // Magic Pack
   // ------------------------------------------------------------
@@ -216,6 +222,12 @@ export const api = {
 
   async arenaFight(projectId: string): Promise<ArenaReport> {
     const res = await http.post<ArenaReport>(`/projects/${id(projectId)}/arena`, {});
+    return res.data;
+  },
+
+  /** Benchmark A* (local) contre RL (moteur IA) sur le même carnet de nets. */
+  async arenaBenchmark(projectId: string): Promise<ArenaBenchmark> {
+    const res = await http.post<ArenaBenchmark>(`/projects/${id(projectId)}/arena/benchmark`, {});
     return res.data;
   },
 
