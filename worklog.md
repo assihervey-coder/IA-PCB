@@ -264,3 +264,38 @@ Stage Summary:
 - Mesure clé : l'écart RL vs A* sur VRAIE carte refermé de 2/52 à 45/52 nets (87 % de A*), longueur 1,155×, vias 294 vs 362 — la politique apporte désormais la majorité des premières jambes
 - Décisions : v6 checkpoint par défaut ; PPO pur reporté (ancre KL / warm-up valeur requis) ; eval leg1 = nouveau protocole de référence
 - Restant : CI à vérifier sur GitHub (commit 094d043) ; PAT toujours à révoquer
+
+---
+Task ID: 13
+Agent: Super Z (main)
+Task: Démarrage serveur YahriaCad à la demande de l'utilisateur (« démarre maintenant le serveur »)
+
+Work Log:
+- Inventaire : frontend Next.js (pid 24421, port 3311) déjà vivant depuis session précédente ; ni moteur IA ni backend Go en cours ; 50051 et 8080 libres
+- Confirmé : frontend proxyfie /api/v1 → http://localhost:8080 (BACKEND_ORIGIN non défini dans l'environ du next-server, défaut next.config.mjs) → backend aligné sur 8080
+- Script persistant scripts/start_server.sh : purge orphelins → go build HEAD → moteur IA (50051) → attente stricte bind → backend (8080, auth JWT admin:admin, data dir /home/z/my-project/yahriacad-data) → check frontend 3311 (+ autostart si absent) → vérif bout-en-bout (login JWT, proxy 3311→8080, healthz)
+- Frontend également démarré sur port 3000 (standard previews) : même build, 200 OK sur / et /pages/pcb-layout
+- Test fonctionnel LIVE sur la stack réelle : demo/nightmare → projet ec725a51 → route A* → job done « routage terminé »
+- healthz : ai_model_loaded=true (checkpoint BC v6 chargé), version 0.1.0
+- Preview space-z.ai : bot-id indéterminable depuis le sandbox (tous candidats testés → 404, même avec port 3000 actif) ; ports 3000/3311 prêts pour le routage passerelle
+
+Stage Summary:
+- Stack complète opérationnelle : IA gRPC 50051 (pid 8063), backend HTTP 8080 (pid 8093), frontend 3311 + 3000 ; identifiants admin/admin ; routage A* vérifié en live
+- scripts/start_server.sh réutilisable pour tout redémarrage ultérieur
+- Restant : PAT GitHub toujours à révoquer ; IL round-trip complet toujours en attente de lancement
+
+---
+Task ID: 13-b (addendum)
+Agent: Super Z (main)
+Task: Consolidation frontend — leçon OOM + port standard 3000
+
+Work Log:
+- DIAGNOSTIC : dmesg révèle l'OOM killer du cgroup (limite ~4 Go) tuait les instances next-server additionnelles (anon-rss 2,9 Go observée sur un next-server tué, pid 1787) — explique la mort systématique du port 3000 dans les sessions précédentes et l'essai setsid
+- Deux instances next-server simultanées (3311+3000) = OOM garanti ; instance 3311 historique (pid 24421) arrêtée volontairement
+- start_server.sh mis à jour : frontend sur port 3000 UNIQUE (standard previews), garde-fou documenté en en-tête
+- Redémarrage complet via script : IA pid 8479 (50051), backend pid 8508 (8080), frontend 3000 démarré DEPUIS LE SCRIPT (pattern qui survit à la coupure bash — les lancements directs depuis l'appel bash meurent)
+- Vérification post-coupure : 3000→200, 8080→401 sans jeton (sécurité OK), /pages/pcb-layout→200, API via proxy 3000 avec JWT→200, mémoire 1055/4159 Mo
+
+Stage Summary:
+- Architecture finale : UNE instance next-server sur 3000 + backend 8080 + IA 50051, tout stable après coupures bash ; règle à retenir = jamais 2 next-server, lancement frontend uniquement via script
+- Le preview space-z.ai reste indéterminable depuis le sandbox (bot-id côté passerelle) mais le port 3000 standard est prêt
