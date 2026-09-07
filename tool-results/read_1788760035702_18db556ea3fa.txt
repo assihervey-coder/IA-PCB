@@ -1,0 +1,774 @@
+     1→"use client";
+     2→
+     3→import { useCallback, useEffect, useRef, useState } from "react";
+     4→import Link from "next/link";
+     5→import { api, isBackendDown } from "@/lib/api/rest-client";
+     6→import type { DRCResult, DRCViolation, LayoutComponent, LayoutData } from "@/lib/api/types";
+     7→import { useProjectStore } from "@/lib/store/project-store";
+     8→import { useUIStore } from "@/lib/store/ui-store";
+     9→import { Button } from "@/app/components/buttons/Button";
+    10→import { Modal } from "@/app/components/modals/Modal";
+    11→import {
+    12→  ComponentPropertiesForm,
+    13→  type ComponentPropertiesPatch,
+    14→} from "@/app/components/forms/ComponentPropertiesForm";
+    15→import {
+    16→  estimateFootprintSize,
+    17→  footprintPadOffsets,
+    18→  screenToWorld,
+    19→  type PanZoom,
+    20→} from "@/lib/utils/geometry-utils";
+    21→import { colorForNet, formatMm, percentFormat } from "@/lib/utils/converters";
+    22→
+    23→const MIN_SCALE = 1;
+    24→const MAX_SCALE = 80;
+    25→const FIT_MARGIN = 34;
+    26→
+    27→// Règles locales utilisées quand le backend est injoignable (mode démo).
+    28→const RULE_MIN_TRACK_WIDTH = 0.2;
+    29→const RULE_MIN_VIA_DIAMETER = 0.5;
+    30→const RULE_MIN_DRILL = 0.25;
+    31→const RULE_EDGE_CLEARANCE = 0.5;
+    32→
+    33→function computeLocalDRC(layout: LayoutData): DRCResult {
+    34→  const violations: DRCViolation[] = [];
+    35→  const { width_mm: w, height_mm: h } = layout.board;
+    36→  for (const track of layout.tracks) {
+    37→    if (track.width < RULE_MIN_TRACK_WIDTH) {
+    38→      const p = track.points[0] ?? { x: 0, y: 0 };
+    39→      violations.push({
+    40→        code: "DRC_TRACK_WIDTH",
+    41→        severity: "error",
+    42→        message: `Largeur de piste ${track.width.toFixed(2)} mm inférieure au minimum (${RULE_MIN_TRACK_WIDTH.toFixed(2)} mm).`,
+    43→        x: p.x,
+    44→        y: p.y,
+    45→        layer: track.layer,
+    46→        net: track.net,
+    47→      });
+    48→    }
+    49→    for (const p of track.points) {
+    50→      if (
+    51→        p.x < RULE_EDGE_CLEARANCE ||
+    52→        p.y < RULE_EDGE_CLEARANCE ||
+    53→        p.x > w - RULE_EDGE_CLEARANCE ||
+    54→        p.y > h - RULE_EDGE_CLEARANCE
+    55→      ) {
+    56→        violations.push({
+    57→          code: "DRC_EDGE_CLEARANCE",
+    58→          severity: "error",
+    59→          message: "Piste trop proche du bord de la carte.",
+    60→          x: p.x,
+    61→          y: p.y,
+    62→          layer: track.layer,
+    63→          net: track.net,
+    64→        });
+    65→        break;
+    66→      }
+    67→    }
+    68→  }
+    69→  for (const via of layout.vias) {
+    70→    if (via.diameter < RULE_MIN_VIA_DIAMETER) {
+    71→      violations.push({
+    72→        code: "DRC_VIA_DIAMETER",
+    73→        severity: "error",
+    74→        message: `Diamètre de via ${via.diameter.toFixed(2)} mm inférieur au minimum.`,
+    75→        x: via.x,
+    76→        y: via.y,
+    77→        layer: via.from_layer,
+    78→        net: via.net,
+    79→      });
+    80→    }
+    81→    if (via.drill < RULE_MIN_DRILL) {
+    82→      violations.push({
+    83→        code: "DRC_DRILL",
+    84→        severity: "error",
+    85→        message: `Forage de via ${via.drill.toFixed(2)} mm inférieur au minimum.`,
+    86→        x: via.x,
+    87→        y: via.y,
+    88→        layer: via.from_layer,
+    89→        net: via.net,
+    90→      });
+    91→    }
+    92→  }
+    93→  return { passed: violations.length === 0, checked_rules: 4, violations, duration_ms: 8 };
+    94→}
+    95→
+    96→/** Placement local déterministe (mode démo) : grille ordonnée, composants fixes conservés. */
+    97→function computeLocalPlacement(layout: LayoutData): LayoutData {
+    98→  const margin = 6;
+    99→  const movable = layout.components.filter((c) => !c.fixed);
+   100→  const cols = Math.max(2, Math.ceil(Math.sqrt(movable.length || 1)));
+   101→  const rows = Math.max(1, Math.ceil(movable.length / cols));
+   102→  const cellW = (layout.board.width_mm - margin * 2) / cols;
+   103→  const cellH = (layout.board.height_mm - margin * 2) / rows;
+   104→  const placed = new Map<string, { x: number; y: number }>();
+   105→  movable.forEach((c, i) => {
+   106→    placed.set(c.ref, {
+   107→      x: margin + cellW * ((i % cols) + 0.5),
+   108→      y: margin + cellH * (Math.floor(i / cols) + 0.5),
+   109→    });
+   110→  });
+   111→  return {
+   112→    ...layout,
+   113→    components: layout.components.map((c) => {
+   114→      const pos = placed.get(c.ref);
+   115→      return pos ? { ...c, x: pos.x, y: pos.y } : c;
+   116→    }),
+   117→  };
+   118→}
+   119→
+   120→function roundedRectPath(
+   121→  ctx: CanvasRenderingContext2D,
+   122→  x: number,
+   123→  y: number,
+   124→  w: number,
+   125→  h: number,
+   126→  r: number,
+   127→): void {
+   128→  const radius = Math.min(r, w / 2, h / 2);
+   129→  ctx.beginPath();
+   130→  ctx.moveTo(x + radius, y);
+   131→  ctx.lineTo(x + w - radius, y);
+   132→  ctx.arcTo(x + w, y, x + w, y + radius, radius);
+   133→  ctx.lineTo(x + w, y + h - radius);
+   134→  ctx.arcTo(x + w, y + h, x + w - radius, y + h, radius);
+   135→  ctx.lineTo(x + radius, y + h);
+   136→  ctx.arcTo(x, y + h, x, y + h - radius, radius);
+   137→  ctx.lineTo(x, y + radius);
+   138→  ctx.arcTo(x, y, x + radius, y, radius);
+   139→  ctx.closePath();
+   140→}
+   141→
+   142→export default function PcbLayoutPage() {
+   143→  const layout = useProjectStore((s) => s.layout);
+   144→  const currentProject = useProjectStore((s) => s.currentProject);
+   145→  const demoMode = useProjectStore((s) => s.demoMode);
+   146→  const drc = useProjectStore((s) => s.drc);
+   147→  const setDRC = useProjectStore((s) => s.setDRC);
+   148→  const refreshLayout = useProjectStore((s) => s.refreshLayout);
+   149→  const loadDemoData = useProjectStore((s) => s.loadDemoData);
+   150→  const pushToast = useUIStore((s) => s.pushToast);
+   151→
+   152→  const [projectId, setProjectId] = useState<string | null>(null);
+   153→  const [hiddenLayers, setHiddenLayers] = useState<number[]>([]);
+   154→  const [highlightNet, setHighlightNet] = useState<string | null>(null);
+   155→  const [selected, setSelected] = useState<LayoutComponent | null>(null);
+   156→  const [zoomLabel, setZoomLabel] = useState(100);
+   157→  const [busyAction, setBusyAction] = useState<string | null>(null);
+   158→  const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+   159→
+   160→  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+   161→  const viewRef = useRef<PanZoom>({ offsetX: 0, offsetY: 0, scale: 10 });
+   162→  const fitScaleRef = useRef(10);
+   163→  const dragRef = useRef<{ mx: number; my: number; ox: number; oy: number; moved: boolean } | null>(null);
+   164→
+   165→  useEffect(() => {
+   166→    const id = new URLSearchParams(window.location.search).get("project");
+   167→    setProjectId(id);
+   168→    if (id) {
+   169→      void refreshLayout(id);
+   170→    } else {
+   171→      void loadDemoData();
+   172→    }
+   173→  }, [refreshLayout, loadDemoData]);
+   174→
+   175→  // ------- Rendu canvas -------
+   176→  const draw = useCallback(() => {
+   177→    const canvas = canvasRef.current;
+   178→    if (!canvas) return;
+   179→    const ctx = canvas.getContext("2d");
+   180→    if (!ctx) return;
+   181→    const data = useProjectStore.getState().layout;
+   182→    const dpr = window.devicePixelRatio || 1;
+   183→    const cssW = canvas.clientWidth || canvasSize.w || 800;
+   184→    const cssH = canvas.clientHeight || canvasSize.h || 520;
+   185→    if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+   186→      canvas.width = Math.round(cssW * dpr);
+   187→      canvas.height = Math.round(cssH * dpr);
+   188→    }
+   189→
+   190→    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+   191→    ctx.fillStyle = "#0B1220";
+   192→    ctx.fillRect(0, 0, cssW, cssH);
+   193→
+   194→    const view = viewRef.current;
+   195→
+   196→    if (!data) return;
+   197→    const W = data.board.width_mm;
+   198→    const H = data.board.height_mm;
+   199→
+   200→    // Passer en coordonnées monde (mm).
+   201→    ctx.setTransform(dpr * view.scale, 0, 0, dpr * view.scale, dpr * view.offsetX, dpr * view.offsetY);
+   202→
+   203→    // Plaque.
+   204→    ctx.fillStyle = "#0F1B33";
+   205→    ctx.fillRect(0, 0, W, H);
+   206→
+   207→    // Grille 1 mm (+ repères 10 mm) si la densité le permet.
+   208→    if (view.scale >= 4.5) {
+   209→      ctx.lineWidth = 1 / view.scale;
+   210→      ctx.strokeStyle = "rgba(140, 160, 192, 0.10)";
+   211→      ctx.beginPath();
+   212→      for (let x = 0; x <= W; x += 1) {
+   213→        ctx.moveTo(x, 0);
+   214→        ctx.lineTo(x, H);
+   215→      }
+   216→      for (let y = 0; y <= H; y += 1) {
+   217→        ctx.moveTo(0, y);
+   218→        ctx.lineTo(W, y);
+   219→      }
+   220→      ctx.stroke();
+   221→      ctx.strokeStyle = "rgba(140, 160, 192, 0.20)";
+   222→      ctx.beginPath();
+   223→      for (let x = 0; x <= W; x += 10) {
+   224→        ctx.moveTo(x, 0);
+   225→        ctx.lineTo(x, H);
+   226→      }
+   227→      for (let y = 0; y <= H; y += 10) {
+   228→        ctx.moveTo(0, y);
+   229→        ctx.lineTo(W, y);
+   230→      }
+   231→      ctx.stroke();
+   232→    }
+   233→
+   234→    // Contour de la carte.
+   235→    ctx.strokeStyle = "#3D5A96";
+   236→    ctx.lineWidth = 2 / view.scale;
+   237→    ctx.strokeRect(0, 0, W, H);
+   238→
+   239→    // Pistes.
+   240→    ctx.lineJoin = "round";
+   241→    ctx.lineCap = "round";
+   242→    for (const track of data.tracks) {
+   243→      const visible = !hiddenLayers.includes(track.layer);
+   244→      let alpha = visible ? 1 : 0.08;
+   245→      if (highlightNet && track.net !== highlightNet) alpha = visible ? 0.18 : 0.04;
+   246→      ctx.globalAlpha = alpha;
+   247→      ctx.strokeStyle = colorForNet(track.net);
+   248→      ctx.lineWidth = Math.max(track.width, 1.2 / view.scale);
+   249→      ctx.beginPath();
+   250→      track.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
+   251→      ctx.stroke();
+   252→    }
+   253→    ctx.globalAlpha = 1;
+   254→
+   255→    // Vias.
+   256→    for (const via of data.vias) {
+   257→      const visible = !hiddenLayers.includes(via.from_layer) || !hiddenLayers.includes(via.to_layer);
+   258→      ctx.globalAlpha = visible ? 1 : 0.1;
+   259→      if (highlightNet && via.net !== highlightNet) ctx.globalAlpha = visible ? 0.2 : 0.06;
+   260→      ctx.beginPath();
+   261→      ctx.arc(via.x, via.y, via.diameter / 2, 0, Math.PI * 2);
+   262→      ctx.fillStyle = "#FFD166";
+   263→      ctx.fill();
+   264→      ctx.beginPath();
+   265→      ctx.arc(via.x, via.y, via.drill / 2, 0, Math.PI * 2);
+   266→      ctx.fillStyle = "#0B1220";
+   267→      ctx.fill();
+   268→    }
+   269→    ctx.globalAlpha = 1;
+   270→
+   271→    // Composants (corps + pastilles).
+   272→    for (const comp of data.components) {
+   273→      const size = estimateFootprintSize(comp.footprint);
+   274→      const isSel = selected?.ref === comp.ref;
+   275→      ctx.save();
+   276→      ctx.translate(comp.x, comp.y);
+   277→      ctx.rotate((comp.rotation * Math.PI) / 180);
+   278→      ctx.globalAlpha = highlightNet ? 0.85 : 1;
+   279→      roundedRectPath(ctx, -size.w / 2, -size.h / 2, size.w, size.h, 0.5);
+   280→      ctx.fillStyle = "#1B2740";
+   281→      ctx.fill();
+   282→      ctx.strokeStyle = isSel ? "#22D3EE" : "#43598A";
+   283→      ctx.lineWidth = (isSel ? 2.2 : 1.2) / view.scale;
+   284→      if (isSel) ctx.setLineDash([1.2, 0.8]);
+   285→      ctx.stroke();
+   286→      ctx.setLineDash([]);
+   287→      for (const pad of footprintPadOffsets(size)) {
+   288→        ctx.fillStyle = "#F59E0B";
+   289→        ctx.fillRect(pad.x - 0.35, pad.y - 0.4, 0.7, 0.8);
+   290→      }
+   291→      ctx.restore();
+   292→      ctx.globalAlpha = 1;
+   293→    }
+   294→
+   295→    // Marqueurs DRC.
+   296→    if (drc && !drc.passed) {
+   297→      for (const v of drc.violations) {
+   298→        ctx.strokeStyle = "#F87171";
+   299→        ctx.lineWidth = 0.35;
+   300→        ctx.beginPath();
+   301→        ctx.arc(v.x, v.y, 1.6, 0, Math.PI * 2);
+   302→        ctx.stroke();
+   303→        ctx.beginPath();
+   304→        ctx.moveTo(v.x - 0.7, v.y - 0.7);
+   305→        ctx.lineTo(v.x + 0.7, v.y + 0.7);
+   306→        ctx.moveTo(v.x + 0.7, v.y - 0.7);
+   307→        ctx.lineTo(v.x - 0.7, v.y + 0.7);
+   308→        ctx.stroke();
+   309→      }
+   310→    }
+   311→
+   312→    // Repères de référence (espace écran, texte net).
+   313→    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+   314→    ctx.font = "600 11px system-ui, sans-serif";
+   315→    ctx.textAlign = "center";
+   316→    for (const comp of data.components) {
+   317→      const sx = comp.x * view.scale + view.offsetX;
+   318→      const sy = comp.y * view.scale + view.offsetY - (estimateFootprintSize(comp.footprint).h / 2) * view.scale - 6;
+   319→      ctx.fillStyle = selected?.ref === comp.ref ? "#22D3EE" : "#8CA0C0";
+   320→      ctx.fillText(comp.ref, sx, sy);
+   321→    }
+   322→  }, [hiddenLayers, highlightNet, selected, drc, canvasSize.w, canvasSize.h]);
+   323→
+   324→  const drawRef = useRef<() => void>(() => {});
+   325→  drawRef.current = draw;
+   326→
+   327→  useEffect(() => {
+   328→    draw();
+   329→  }, [draw, layout]);
+   330→
+   331→  // Redimensionnement du canvas.
+   332→  useEffect(() => {
+   333→    const canvas = canvasRef.current;
+   334→    if (!canvas) return;
+   335→    const observer = new ResizeObserver(() => {
+   336→      setCanvasSize({ w: canvas.clientWidth, h: canvas.clientHeight });
+   337→      drawRef.current();
+   338→    });
+   339→    observer.observe(canvas);
+   340→    return () => observer.disconnect();
+   341→  }, []);
+   342→
+   343→  const fitView = useCallback(() => {
+   344→    const data = useProjectStore.getState().layout;
+   345→    const canvas = canvasRef.current;
+   346→    if (!data || !canvas) return;
+   347→    const cssW = canvas.clientWidth || 800;
+   348→    const cssH = canvas.clientHeight || 520;
+   349→    const scale = Math.min(
+   350→      (cssW - FIT_MARGIN * 2) / data.board.width_mm,
+   351→      (cssH - FIT_MARGIN * 2) / data.board.height_mm,
+   352→    );
+   353→    viewRef.current = {
+   354→      scale,
+   355→      offsetX: (cssW - data.board.width_mm * scale) / 2,
+   356→      offsetY: (cssH - data.board.height_mm * scale) / 2,
+   357→    };
+   358→    fitScaleRef.current = scale;
+   359→    setZoomLabel(100);
+   360→    drawRef.current();
+   361→  }, []);
+   362→
+   363→  // Ajustement initial dès que le layout est disponible.
+   364→  const fittedFor = useRef<string | null>(null);
+   365→  useEffect(() => {
+   366→    if (!layout || !canvasRef.current) return;
+   367→    const key = `${currentProject?.id ?? "demo"}-${layout.board.width_mm}x${layout.board.height_mm}`;
+   368→    if (fittedFor.current !== key) {
+   369→      fittedFor.current = key;
+   370→      fitView();
+   371→    }
+   372→  }, [layout, currentProject, fitView]);
+   373→
+   374→  // Zoom molette centré sur le curseur.
+   375→  useEffect(() => {
+   376→    const canvas = canvasRef.current;
+   377→    if (!canvas) return;
+   378→    const onWheel = (e: WheelEvent) => {
+   379→      e.preventDefault();
+   380→      const rect = canvas.getBoundingClientRect();
+   381→      const mx = e.clientX - rect.left;
+   382→      const my = e.clientY - rect.top;
+   383→      const view = viewRef.current;
+   384→      const before = screenToWorld(mx, my, view);
+   385→      const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+   386→      view.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.scale * factor));
+   387→      view.offsetX = mx - before.x * view.scale;
+   388→      view.offsetY = my - before.y * view.scale;
+   389→      if (fitScaleRef.current > 0) {
+   390→        setZoomLabel(Math.round((view.scale / fitScaleRef.current) * 100));
+   391→      }
+   392→      drawRef.current();
+   393→    };
+   394→    canvas.addEventListener("wheel", onWheel, { passive: false });
+   395→    return () => canvas.removeEventListener("wheel", onWheel);
+   396→  }, []);
+   397→
+   398→  const zoomBy = (factor: number) => {
+   399→    const view = viewRef.current;
+   400→    const canvas = canvasRef.current;
+   401→    if (!canvas) return;
+   402→    const cx = canvas.clientWidth / 2;
+   403→    const cy = canvas.clientHeight / 2;
+   404→    const before = screenToWorld(cx, cy, view);
+   405→    view.scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, view.scale * factor));
+   406→    view.offsetX = cx - before.x * view.scale;
+   407→    view.offsetY = cy - before.y * view.scale;
+   408→    setZoomLabel(Math.round((view.scale / fitScaleRef.current) * 100));
+   409→    drawRef.current();
+   410→  };
+   411→
+   412→  // ------- Interactions souris -------
+   413→  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+   414→    if (e.button !== 0) return;
+   415→    canvasRef.current?.setPointerCapture(e.pointerId);
+   416→    dragRef.current = { mx: e.clientX, my: e.clientY, ox: viewRef.current.offsetX, oy: viewRef.current.offsetY, moved: false };
+   417→  };
+   418→
+   419→  const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+   420→    const drag = dragRef.current;
+   421→    if (!drag) return;
+   422→    const dx = e.clientX - drag.mx;
+   423→    const dy = e.clientY - drag.my;
+   424→    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+   425→    if (drag.moved) {
+   426→      viewRef.current.offsetX = drag.ox + dx;
+   427→      viewRef.current.offsetY = drag.oy + dy;
+   428→      drawRef.current();
+   429→    }
+   430→  };
+   431→
+   432→  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+   433→    const drag = dragRef.current;
+   434→    dragRef.current = null;
+   435→    if (!drag || drag.moved) return;
+   436→    const canvas = canvasRef.current;
+   437→    if (!canvas) return;
+   438→    const rect = canvas.getBoundingClientRect();
+   439→    const world = screenToWorld(e.clientX - rect.left, e.clientY - rect.top, viewRef.current);
+   440→    const data = useProjectStore.getState().layout;
+   441→    if (!data) return;
+   442→    let hit: LayoutComponent | null = null;
+   443→    for (let i = data.components.length - 1; i >= 0; i--) {
+   444→      const c = data.components[i];
+   445→      const size = estimateFootprintSize(c.footprint);
+   446→      const swap = Math.abs(c.rotation % 180) === 90;
+   447→      const hw = (swap ? size.h : size.w) / 2 + 0.4;
+   448→      const hh = (swap ? size.w : size.h) / 2 + 0.4;
+   449→      if (Math.abs(world.x - c.x) <= hw && Math.abs(world.y - c.y) <= hh) {
+   450→        hit = c;
+   451→        break;
+   452→      }
+   453→    }
+   454→    setSelected(hit);
+   455→  };
+   456→
+   457→  // ------- Actions -------
+   458→  const handlePlace = async () => {
+   459→    if (busyAction) return;
+   460→    if (!projectId) {
+   461→      const data = useProjectStore.getState().layout;
+   462→      if (data) {
+   463→        setBusyAction("place");
+   464→        useProjectStore.setState({ layout: computeLocalPlacement(data) });
+   465→        setBusyAction(null);
+   466→        pushToast("Mode démo : placement local simulé (grille ordonnée).", "info");
+   467→      }
+   468→      return;
+   469→    }
+   470→    setBusyAction("place");
+   471→    try {
+   472→      await api.startPlace(projectId, "heuristic");
+   473→      await refreshLayout(projectId);
+   474→      pushToast("Placement IA terminé, layout mis à jour.", "success");
+   475→    } catch (err) {
+   476→      if (isBackendDown(err)) {
+   477→        const data = useProjectStore.getState().layout;
+   478→        if (data) {
+   479→          useProjectStore.setState({ layout: computeLocalPlacement(data) });
+   480→          pushToast("Mode démo : placement local simulé (grille ordonnée).", "info");
+   481→        }
+   482→      } else {
+   483→        pushToast("Échec du placement IA.", "error");
+   484→      }
+   485→    } finally {
+   486→      setBusyAction(null);
+   487→    }
+   488→  };
+   489→
+   490→  const handleSave = async () => {
+   491→    const data = useProjectStore.getState().layout;
+   492→    if (!projectId || !data || busyAction) return;
+   493→    setBusyAction("save");
+   494→    try {
+   495→      await api.putLayout(projectId, data);
+   496→      pushToast("Layout enregistré sur le backend.", "success");
+   497→    } catch (err) {
+   498→      if (isBackendDown(err)) {
+   499→        pushToast("Mode démo : enregistrement local uniquement.", "info");
+   500→      } else {
+   501→        pushToast("Échec de l'enregistrement du layout.", "error");
+   502→      }
+   503→    } finally {
+   504→      setBusyAction(null);
+   505→    }
+   506→  };
+   507→
+   508→  const handleDrc = async () => {
+   509→    if (busyAction) return;
+   510→    const data = useProjectStore.getState().layout;
+   511→    if (!data) return;
+   512→    if (!projectId) {
+   513→      setDRC(computeLocalDRC(data));
+   514→      return;
+   515→    }
+   516→    setBusyAction("drc");
+   517→    try {
+   518→      const result = await api.runDRC(projectId);
+   519→      setDRC(result);
+   520→      pushToast(
+   521→        result.passed
+   522→          ? `DRC conforme (${result.checked_rules} règles vérifiées).`
+   523→          : `DRC : ${result.violations.length} violation(s).`,
+   524→        result.passed ? "success" : "error",
+   525→      );
+   526→    } catch (err) {
+   527→      if (isBackendDown(err)) {
+   528→        const local = computeLocalDRC(data);
+   529→        setDRC(local);
+   530→        pushToast(
+   531→          local.passed
+   532→            ? "Mode démo : DRC local conforme."
+   533→            : `Mode démo : DRC local — ${local.violations.length} violation(s).`,
+   534→          local.passed ? "success" : "error",
+   535→        );
+   536→      } else {
+   537→        pushToast("Échec de l'exécution du DRC.", "error");
+   538→      }
+   539→    } finally {
+   540→      setBusyAction(null);
+   541→    }
+   542→  };
+   543→
+   544→  const applyProperties = async (patch: ComponentPropertiesPatch) => {
+   545→    const data = useProjectStore.getState().layout;
+   546→    if (!data || !selected) return;
+   547→    const next: LayoutData = {
+   548→      ...data,
+   549→      components: data.components.map((c) =>
+   550→        c.ref === selected.ref
+   551→          ? {
+   552→              ...c,
+   553→              footprint: patch.footprint,
+   554→              x: patch.x,
+   555→              y: patch.y,
+   556→              rotation: patch.rotation,
+   557→              fixed: patch.fixed,
+   558→            }
+   559→          : c,
+   560→      ),
+   561→    };
+   562→    useProjectStore.setState({ layout: next });
+   563→    setSelected(null);
+   564→    if (projectId && !demoMode) {
+   565→      try {
+   566→        await api.putLayout(projectId, next);
+   567→        pushToast("Composant mis à jour et enregistré.", "success");
+   568→      } catch {
+   569→        pushToast("Composant mis à jour localement (backend injoignable).", "info");
+   570→      }
+   571→    }
+   572→  };
+   573→
+   574→  const toggleLayer = (index: number) => {
+   575→    setHiddenLayers((prev) => (prev.includes(index) ? prev.filter((l) => l !== index) : [...prev, index]));
+   576→  };
+   577→
+   578→  const query = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
+   579→  const layerNames = layout?.board.layer_names ?? [];
+   580→
+   581→  return (
+   582→    <div className="page">
+   583→      <div className="page-header">
+   584→        <div>
+   585→          <h1 className="page-title">Éditeur PCB</h1>
+   586→          <p className="page-subtitle">
+   587→            {currentProject?.name ?? "Projet sans nom"}
+   588→            {projectId ? ` — projet ${projectId}` : " — données de démonstration"}
+   589→          </p>
+   590→        </div>
+   591→      </div>
+   592→
+   593→      {demoMode ? (
+   594→        <div className="demo-banner" data-testid="demo-banner" role="status">
+   595→          Mode démo : backend injoignable, carte d&apos;exemple affichée.
+   596→        </div>
+   597→      ) : null}
+   598→
+   599→      <div className="editor-layout" style={{ gridTemplateColumns: "270px 1fr" }}>
+   600→        <aside className="side-panel">
+   601→          <div className="side-box panel">
+   602→            <h3 className="panel-title">Couches</h3>
+   603→            <div className="layer-list">
+   604→              {layerNames.map((name, index) => (
+   605→                <label key={name} className="layer-item">
+   606→                  <input
+   607→                    type="checkbox"
+   608→                    checked={!hiddenLayers.includes(index)}
+   609→                    onChange={() => toggleLayer(index)}
+   610→                  />
+   611→                  <span>{name}</span>
+   612→                </label>
+   613→              ))}
+   614→            </div>
+   615→          </div>
+   616→
+   617→          <div className="side-box panel">
+   618→            <h3 className="panel-title">Nets ({layout?.nets.length ?? 0})</h3>
+   619→            <ul className="net-list">
+   620→              {(layout?.nets ?? []).map((net) => (
+   621→                <li
+   622→                  key={net.name}
+   623→                  className={`net-item${highlightNet === net.name ? " active" : ""}`}
+   624→                  onClick={() => setHighlightNet((prev) => (prev === net.name ? null : net.name))}
+   625→                  title="Cliquer pour isoler ce net"
+   626→                >
+   627→                  <span className="net-dot" style={{ background: colorForNet(net.name) }} />
+   628→                  <span className="net-name">{net.name}</span>
+   629→                  <span className="net-count">{net.pad_count} pads</span>
+   630→                </li>
+   631→              ))}
+   632→            </ul>
+   633→          </div>
+   634→
+   635→          <div className="side-box panel">
+   636→            <h3 className="panel-title">Légende</h3>
+   637→            <div className="legend">
+   638→              <div className="legend-item">
+   639→                <span className="legend-swatch" style={{ background: "#F59E0B" }} />
+   640→                Pastilles / cuivre F.Cu
+   641→              </div>
+   642→              <div className="legend-item">
+   643→                <span className="legend-swatch" style={{ background: "#FFD166" }} />
+   644→                Vias (couche B en or)
+   645→              </div>
+   646→              <div className="legend-item">
+   647→                <span className="legend-swatch" style={{ background: "#22D3EE" }} />
+   648→                Composant sélectionné
+   649→              </div>
+   650→              <div className="legend-item">
+   651→                <span className="legend-swatch" style={{ background: "#F87171" }} />
+   652→                Violation DRC
+   653→              </div>
+   654→            </div>
+   655→          </div>
+   656→        </aside>
+   657→
+   658→        <section className="canvas-wrap panel">
+   659→          <div className="toolbar">
+   660→            <Button size="sm" data-testid="ai-place-btn" onClick={() => void handlePlace()} disabled={busyAction !== null}>
+   661→              {busyAction === "place" ? "Placement…" : "Placement IA"}
+   662→            </Button>
+   663→            <Link className="btn btn-secondary btn-sm" href={`/pages/pcb-layout/router${query}`}>
+   664→              Routage IA
+   665→            </Link>
+   666→            <Button size="sm" data-testid="drc-run-btn" onClick={() => void handleDrc()} disabled={busyAction !== null}>
+   667→              {busyAction === "drc" ? "Analyse…" : "DRC"}
+   668→            </Button>
+   669→            <Link className="btn btn-secondary btn-sm" href={`/pages/schematic-editor${query}`}>
+   670→              ERC
+   671→            </Link>
+   672→            <span className="toolbar-sep" />
+   673→            <Link className="btn btn-secondary btn-sm" href={`/pages/export${query}`}>
+   674→              Exporter
+   675→            </Link>
+   676→            <Link className="btn btn-secondary btn-sm" href={`/pages/pcb-layout/viewer${query}`}>
+   677→              Vue 3D
+   678→            </Link>
+   679→            <span className="toolbar-sep" />
+   680→            <Button size="sm" variant="ghost" onClick={() => void handleSave()} disabled={busyAction !== null}>
+   681→              {busyAction === "save" ? "Enregistrement…" : "Enregistrer"}
+   682→            </Button>
+   683→            <span className="toolbar-sep" />
+   684→            <Button size="sm" variant="secondary" onClick={() => zoomBy(1.2)} aria-label="Zoom avant">
+   685→              Zoom +
+   686→            </Button>
+   687→            <Button size="sm" variant="secondary" onClick={() => zoomBy(1 / 1.2)} aria-label="Zoom arrière">
+   688→              Zoom −
+   689→            </Button>
+   690→            <Button size="sm" variant="ghost" onClick={fitView}>
+   691→              Ajuster
+   692→            </Button>
+   693→            <span className="zoom-label">{percentFormat(zoomLabel)}</span>
+   694→          </div>
+   695→
+   696→          <canvas
+   697→            ref={canvasRef}
+   698→            data-testid="pcb-canvas"
+   699→            className="pcb-canvas"
+   700→            onPointerDown={handlePointerDown}
+   701→            onPointerMove={handlePointerMove}
+   702→            onPointerUp={handlePointerUp}
+   703→            onPointerLeave={handlePointerUp}
+   704→          />
+   705→
+   706→          {!layout ? (
+   707→            <div className="hint-empty">
+   708→              Aucune donnée de layout. Créez un projet, importez un fichier ou lancez le placement IA.
+   709→            </div>
+   710→          ) : null}
+   711→
+   712→          <div className="canvas-status">
+   713→            <span>
+   714→              Carte : {layout ? `${formatMm(layout.board.width_mm, 0)} × ${formatMm(layout.board.height_mm, 0)}` : "—"}
+   715→            </span>
+   716→            <span>{layout?.tracks.length ?? 0} pistes — {layout?.vias.length ?? 0} vias</span>
+   717→            {highlightNet ? <span>Net isolé : {highlightNet}</span> : null}
+   718→            {selected ? <span>Sélection : {selected.ref}</span> : <span className="muted">Cliquez sur un composant</span>}
+   719→          </div>
+   720→        </section>
+   721→      </div>
+   722→
+   723→      {drc ? (
+   724→        <section className="erc-panel panel">
+   725→          <div className="erc-header">
+   726→            <h3>Résultats DRC</h3>
+   727→            <div className="page-actions">
+   728→              <span className="erc-summary">
+   729→                {drc.checked_rules} règles vérifiées en {drc.duration_ms} ms
+   730→              </span>
+   731→              <Button size="sm" variant="ghost" onClick={() => setDRC(null)}>
+   732→                Masquer
+   733→              </Button>
+   734→            </div>
+   735→          </div>
+   736→          <div className={`pass-banner ${drc.passed ? "ok" : "fail"}`}>
+   737→            {drc.passed
+   738→              ? "DRC conforme : aucune violation détectée."
+   739→              : `DRC : ${drc.violations.length} violation(s) — marquées en rouge sur la carte.`}
+   740→          </div>
+   741→          {drc.violations.length > 0 ? (
+   742→            <ul className="violation-list" style={{ marginTop: 10 }}>
+   743→              {drc.violations.map((v, i) => (
+   744→                <li key={i} className="violation-item">
+   745→                  <span className={`sev sev-${v.severity}`}>
+   746→                    {v.severity === "error" ? "Erreur" : "Avertissement"}
+   747→                  </span>
+   748→                  <div>
+   749→                    <strong>{v.code}</strong>
+   750→                    <span> — {v.message}</span>
+   751→                    <div className="violation-loc">
+   752→                      Net {v.net || "—"} · Couche {layerNames[v.layer] ?? v.layer} · x {formatMm(v.x)} · y {formatMm(v.y)}
+   753→                    </div>
+   754→                  </div>
+   755→                </li>
+   756→              ))}
+   757→            </ul>
+   758→          ) : null}
+   759→        </section>
+   760→      ) : null}
+   761→
+   762→      {selected ? (
+   763→        <Modal title={`Propriétés — ${selected.ref}`} onClose={() => setSelected(null)}>
+   764→          <ComponentPropertiesForm
+   765→            component={selected}
+   766→            onSubmit={(patch) => void applyProperties(patch)}
+   767→            onCancel={() => setSelected(null)}
+   768→          />
+   769→        </Modal>
+   770→      ) : null}
+   771→    </div>
+   772→  );
+   773→}
+   774→

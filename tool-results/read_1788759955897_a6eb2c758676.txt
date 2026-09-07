@@ -1,0 +1,864 @@
+     1→"""gRPC AI router service (KidCAD-Pro-IA ai-engine).
+     2→
+     3→Implements ``kidcad.pcb.v1.AIRouterService`` (see ``shared/types/pcb.proto``):
+     4→
+     5→* ``GetHealth``     : liveness + configuration report;
+     6→* ``PlanPlacement`` : simulated-annealing placement (deterministic seed);
+     7→* ``RouteBoard``    : server-streaming routing, one ``ProgressEvent`` per net
+     8→  (RL greedy rollout when a trained model is loaded, deterministic A*
+     9→  fallback otherwise);
+    10→* ``OptimizeRoutes``: rip-up & reroute of the longest nets.
+    11→
+    12→The module NEVER imports torch at import time: torch is only touched when a
+    13→trained checkpoint actually exists on disk, so the service works end-to-end
+    14→with the pure-Python A* fallback.
+    15→"""
+    16→
+    17→from __future__ import annotations
+    18→
+    19→import logging
+    20→import math
+    21→import os
+    22→import random
+    23→import sys
+    24→import time
+    25→from pathlib import Path
+    26→from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+    27→
+    28→# --------------------------------------------------------------------------
+    29→# sys.path bootstrap: generated gRPC stubs live in shared/gen/python, sibling
+    30→# packages (src.environment, evaluation) live under the ai-engine root.
+    31→# --------------------------------------------------------------------------
+    32→_THIS_FILE = Path(__file__).resolve()
+    33→AI_ENGINE_ROOT = _THIS_FILE.parents[1]
+    34→REPO_ROOT = _THIS_FILE.parents[2]
+    35→SHARED_GEN_DIR = REPO_ROOT / "shared" / "gen" / "python"
+    36→for _path in (str(SHARED_GEN_DIR), str(AI_ENGINE_ROOT)):
+    37→    if _path and os.path.isdir(_path) and _path not in sys.path:
+    38→        sys.path.insert(0, _path)
+    39→
+    40→import grpc  # noqa: E402
+    41→import pcb_pb2 as pb  # noqa: E402
+    42→import pcb_pb2_grpc as pb_grpc  # noqa: E402
+    43→
+    44→try:  # package import (src.service) or direct import (service)
+    45→    from .environment.pcb_env import EnvConfig, PCBRouteEnv
+    46→except ImportError:  # pragma: no cover - direct script import
+    47→    from src.environment.pcb_env import EnvConfig, PCBRouteEnv  # type: ignore
+    48→
+    49→__all__ = ["AIRouterServicer", "AI_ENGINE_ROOT", "REPO_ROOT"]
+    50→
+    51→_DEFAULT_CLEARANCE_MM = 0.2
+    52→_BORDER_MARGIN_MM = 0.25
+    53→
+    54→
+    55→# ==========================================================================
+    56→# Conversion helpers (proto <-> plain dicts). All helpers are total: they
+    57→# tolerate missing/defaulted proto fields and never raise on None.
+    58→# ==========================================================================
+    59→
+    60→
+    61→def _board_to_dict(board: pb.BoardSpec) -> dict:
+    62→    """Convert a ``BoardSpec`` proto into the env board dict."""
+    63→    return {
+    64→        "width_mm": float(board.width_mm or 0.0) or 100.0,
+    65→        "height_mm": float(board.height_mm or 0.0) or 100.0,
+    66→        "layer_count": max(1, int(board.layer_count or 2)),
+    67→        "grid_resolution_mm": float(board.grid_resolution_mm or 0.0) or None,
+    68→        "layer_names": [str(name) for name in board.layer_names],
+    69→    }
+    70→
+    71→
+    72→def _nets_to_dicts(nets: Iterable[pb.NetSpec]) -> List[dict]:
+    73→    """Convert ``NetSpec`` protos into env net dicts (absolute pad positions)."""
+    74→    out: List[dict] = []
+    75→    for net in nets:
+    76→        pads = [
+    77→            {
+    78→                "component_ref": str(pad.component_ref or ""),
+    79→                "pad_name": str(pad.pad_name or ""),
+    80→                "position": {"x": float(pad.position.x), "y": float(pad.position.y)},
+    81→                "layer": int(pad.layer),
+    82→                "width_mm": float(pad.width_mm or 0.3),
+    83→                "height_mm": float(pad.height_mm or 0.3),
+    84→            }
+    85→            for pad in net.pads
+    86→        ]
+    87→        out.append(
+    88→            {
+    89→                "name": str(net.name or f"net{len(out)}"),
+    90→                "net_class": str(net.net_class or "default"),
+    91→                "pads": pads,
+    92→                "min_track_width_mm": float(net.min_track_width_mm or 0.25),
+    93→                "clearance_mm": float(net.clearance_mm or _DEFAULT_CLEARANCE_MM),
+    94→            }
+    95→        )
+    96→    return out
+    97→
+    98→
+    99→def _components_from_proto(components: Iterable[pb.ComponentSpec]) -> List[dict]:
+   100→    """Convert ``ComponentSpec`` protos into plain dicts."""
+   101→    out: List[dict] = []
+   102→    for comp in components:
+   103→        bbox = comp.bbox_mm
+   104→        out.append(
+   105→            {
+   106→                "ref": str(comp.ref or f"C{len(out)}"),
+   107→                "footprint": str(comp.footprint or ""),
+   108→                "position": {"x": float(comp.position.x), "y": float(comp.position.y)},
+   109→                "rotation_deg": float(comp.rotation_deg),
+   110→                "fixed": bool(comp.fixed),
+   111→                "bbox": {
+   112→                    "min_x": float(bbox.min_x),
+   113→                    "min_y": float(bbox.min_y),
+   114→                    "max_x": float(bbox.max_x),
+   115→                    "max_y": float(bbox.max_y),
+   116→                },
+   117→                "height_mm": float(comp.height_mm),
+   118→            }
+   119→        )
+   120→    return out
+   121→
+   122→
+   123→def _component_to_proto(comp: dict) -> pb.ComponentSpec:
+   124→    """Convert a plain component dict into a ``ComponentSpec`` proto."""
+   125→    position = comp.get("position") or {}
+   126→    bbox = comp.get("bbox") or {}
+   127→    proto = pb.ComponentSpec(
+   128→        ref=str(comp.get("ref", "") or ""),
+   129→        footprint=str(comp.get("footprint", "") or ""),
+   130→        rotation_deg=float(comp.get("rotation_deg", 0.0) or 0.0),
+   131→        fixed=bool(comp.get("fixed", False)),
+   132→        height_mm=float(comp.get("height_mm", 0.0) or 0.0),
+   133→    )
+   134→    proto.position.x = float(position.get("x", 0.0) or 0.0)
+   135→    proto.position.y = float(position.get("y", 0.0) or 0.0)
+   136→    proto.bbox_mm.min_x = float(bbox.get("min_x", 0.0) or 0.0)
+   137→    proto.bbox_mm.min_y = float(bbox.get("min_y", 0.0) or 0.0)
+   138→    proto.bbox_mm.max_x = float(bbox.get("max_x", 0.0) or 0.0)
+   139→    proto.bbox_mm.max_y = float(bbox.get("max_y", 0.0) or 0.0)
+   140→    return proto
+   141→
+   142→
+   143→def _route_to_proto(route: dict) -> pb.RouteNetResult:
+   144→    """Convert an env route dict into a ``RouteNetResult`` proto."""
+   145→    result = pb.RouteNetResult(
+   146→        net=str(route.get("net", "") or ""),
+   147→        length_mm=float(route.get("length_mm", 0.0) or 0.0),
+   148→        completed=bool(route.get("completed", False)),
+   149→        drc_violations=int(route.get("drc_violations", 0) or 0),
+   150→    )
+   151→    for seg in route.get("segments") or []:
+   152→        a = seg.get("a") or {}
+   153→        b = seg.get("b") or {}
+   154→        seg_msg = result.segments.add()
+   155→        seg_msg.a.position.x = float(a.get("x", 0.0) or 0.0)
+   156→        seg_msg.a.position.y = float(a.get("y", 0.0) or 0.0)
+   157→        seg_msg.a.layer = int(a.get("layer", 0) or 0)
+   158→        seg_msg.b.position.x = float(b.get("x", 0.0) or 0.0)
+   159→        seg_msg.b.position.y = float(b.get("y", 0.0) or 0.0)
+   160→        seg_msg.b.layer = int(b.get("layer", 0) or 0)
+   161→        seg_msg.width_mm = float(seg.get("width_mm", 0.25) or 0.25)
+   162→    for via in route.get("vias") or []:
+   163→        via_msg = result.vias.add()
+   164→        via_msg.position.x = float(via.get("x", 0.0) or 0.0)
+   165→        via_msg.position.y = float(via.get("y", 0.0) or 0.0)
+   166→        via_msg.from_layer = int(via.get("from_layer", 0) or 0)
+   167→        via_msg.to_layer = int(via.get("to_layer", 0) or 0)
+   168→        via_msg.diameter_mm = float(via.get("diameter_mm", 0.6) or 0.6)
+   169→        via_msg.drill_mm = float(via.get("drill_mm", 0.3) or 0.3)
+   170→    return result
+   171→
+   172→
+   173→def _route_result_to_dict(result: pb.RouteNetResult) -> dict:
+   174→    """Convert a ``RouteNetResult`` proto into the env route dict format."""
+   175→    return {
+   176→        "net": str(result.net or ""),
+   177→        "segments": [
+   178→            {
+   179→                "a": {
+   180→                    "x": float(seg.a.position.x),
+   181→                    "y": float(seg.a.position.y),
+   182→                    "layer": int(seg.a.layer),
+   183→                },
+   184→                "b": {
+   185→                    "x": float(seg.b.position.x),
+   186→                    "y": float(seg.b.position.y),
+   187→                    "layer": int(seg.b.layer),
+   188→                },
+   189→                "width_mm": float(seg.width_mm or 0.25),
+   190→            }
+   191→            for seg in result.segments
+   192→        ],
+   193→        "vias": [
+   194→            {
+   195→                "x": float(via.position.x),
+   196→                "y": float(via.position.y),
+   197→                "from_layer": int(via.from_layer),
+   198→                "to_layer": int(via.to_layer),
+   199→                "diameter_mm": float(via.diameter_mm or 0.6),
+   200→                "drill_mm": float(via.drill_mm or 0.3),
+   201→            }
+   202→            for via in result.vias
+   203→        ],
+   204→        "length_mm": float(result.length_mm or 0.0),
+   205→        "completed": bool(result.completed),
+   206→        "drc_violations": int(result.drc_violations or 0),
+   207→    }
+   208→
+   209→
+   210→def _flat_segments(routes: Sequence[dict]) -> List[Tuple[str, int, float, float, float, float]]:
+   211→    """Flatten route dicts into ``(net, layer, x1, y1, x2, y2)`` tuples."""
+   212→    out: List[Tuple[str, int, float, float, float, float]] = []
+   213→    for route in routes:
+   214→        net = str(route.get("net", "") or "")
+   215→        for seg in route.get("segments") or []:
+   216→            a = seg.get("a") or {}
+   217→            b = seg.get("b") or {}
+   218→            out.append(
+   219→                (
+   220→                    net,
+   221→                    int(a.get("layer", 0) or 0),
+   222→                    float(a.get("x", 0.0) or 0.0),
+   223→                    float(a.get("y", 0.0) or 0.0),
+   224→                    float(b.get("x", 0.0) or 0.0),
+   225→                    float(b.get("y", 0.0) or 0.0),
+   226→                )
+   227→            )
+   228→    return out
+   229→
+   230→
+   231→def _drc_violations_for_net(route: dict, prior_routes: Sequence[dict], clearance_mm: float) -> int:
+   232→    """Approximate clearance violations of ``route`` against earlier routes.
+   233→
+   234→    Counts same-layer segment pairs of different nets closer than
+   235→    ``clearance_mm`` plus the corresponding via/segment and via/via checks.
+   236→    """
+   237→    try:
+   238→        from evaluation.metrics import point_segment_distance, segment_distance
+   239→    except Exception:  # pragma: no cover - metrics always importable here
+   240→        return 0
+   241→
+   242→    count = 0
+   243→    eps = 1e-9
+   244→    own = str(route.get("net", "") or "")
+   245→    own_segments = _flat_segments([route])
+   246→    other_segments = _flat_segments(list(prior_routes))
+   247→
+   248→    for net_a, layer_a, ax, ay, bx, by in own_segments:
+   249→        for net_b, layer_b, cx, cy, dx, dy in other_segments:
+   250→            if net_a == net_b or layer_a != layer_b:
+   251→                continue
+   252→            if segment_distance((ax, ay), (bx, by), (cx, cy), (dx, dy)) < clearance_mm - eps:
+   253→                count += 1
+   254→
+   255→    own_vias = [
+   256→        (own, float(v.get("x", 0.0) or 0.0), float(v.get("y", 0.0) or 0.0),
+   257→         {int(v.get("from_layer", 0) or 0), int(v.get("to_layer", 0) or 0)})
+   258→        for v in route.get("vias") or []
+   259→    ]
+   260→    other_vias = [
+   261→        (str(r.get("net", "") or ""), float(v.get("x", 0.0) or 0.0), float(v.get("y", 0.0) or 0.0),
+   262→         {int(v.get("from_layer", 0) or 0), int(v.get("to_layer", 0) or 0)})
+   263→        for r in prior_routes
+   264→        for v in (r.get("vias") or [])
+   265→    ]
+   266→    for net_a, vx, vy, layers_a in own_vias:
+   267→        for net_b, ox, oy, layers_b in other_vias:
+   268→            if net_a == net_b or not (layers_a & layers_b):
+   269→                continue
+   270→            if math.hypot(vx - ox, vy - oy) < clearance_mm - eps:
+   271→                count += 1
+   272→        for net_b, layer_b, cx, cy, dx, dy in other_segments:
+   273→            if net_a == net_b or layer_b not in layers_a:
+   274→                continue
+   275→            if point_segment_distance((vx, vy), (cx, cy), (dx, dy)) < clearance_mm - eps:
+   276→                count += 1
+   277→    return count
+   278→
+   279→
+   280→def _estimate_net_length(net: dict) -> float:
+   281→    """Cheap routability estimate: manhattan span of the net's pads."""
+   282→    pads = net.get("pads") or []
+   283→    if not pads:
+   284→        return 0.0
+   285→    xs = [float((p.get("position") or {}).get("x", 0.0) or 0.0) for p in pads]
+   286→    ys = [float((p.get("position") or {}).get("y", 0.0) or 0.0) for p in pads]
+   287→    return (max(xs) - min(xs)) + (max(ys) - min(ys))
+   288→
+   289→
+   290→def _job_id_from_context(context) -> str:
+   291→    """Read an optional ``job_id`` gRPC metadata key (empty by default)."""
+   292→    try:
+   293→        for key, value in context.invocation_metadata() or ():
+   294→            if key.lower() in ("job_id", "job-id", "x-job-id"):
+   295→                return str(value)
+   296→    except Exception:
+   297→        pass
+   298→    return ""
+   299→
+   300→
+   301→# ==========================================================================
+   302→# Placement: simulated annealing (deterministic)
+   303→# ==========================================================================
+   304→
+   305→
+   306→def _rect_overlap_area(
+   307→    pos_a: Sequence[float], half_a: Sequence[float],
+   308→    pos_b: Sequence[float], half_b: Sequence[float],
+   309→) -> float:
+   310→    """Overlap area of two axis-aligned rectangles (0 when disjoint)."""
+   311→    dx = min(pos_a[0] + half_a[0], pos_b[0] + half_b[0]) - max(
+   312→        pos_a[0] - half_a[0], pos_b[0] - half_b[0]
+   313→    )
+   314→    dy = min(pos_a[1] + half_a[1], pos_b[1] + half_b[1]) - max(
+   315→        pos_a[1] - half_a[1], pos_b[1] - half_b[1]
+   316→    )
+   317→    return max(0.0, dx) * max(0.0, dy)
+   318→
+   319→
+   320→def _clamp_position(
+   321→    x: float, y: float, half_w: float, half_h: float, width: float, height: float
+   322→) -> Tuple[float, float]:
+   323→    """Clamp a component center so its bbox stays inside the board."""
+   324→    margin = _BORDER_MARGIN_MM
+   325→    min_x, max_x = margin + half_w, width - margin - half_w
+   326→    min_y, max_y = margin + half_h, height - margin - half_h
+   327→    if min_x > max_x:
+   328→        min_x = max_x = width / 2.0
+   329→    if min_y > max_y:
+   330→        min_y = max_y = height / 2.0
+   331→    return min(max(x, min_x), max_x), min(max(y, min_y), max_y)
+   332→
+   333→
+   334→def _simulated_annealing_placement(
+   335→    components: List[dict],
+   336→    board: dict,
+   337→    rng: random.Random,
+   338→    iterations: int = 1500,
+   339→    time_budget_s: float = 2.0,
+   340→    overlap_weight: float = 5.0,
+   341→) -> Tuple[List[Tuple[float, float]], float, float]:
+   342→    """Deterministic simulated annealing placement.
+   343→
+   344→    Note: the v1 ``PlacementRequest`` proto carries no netlist, so the
+   345→    wirelength term is a complete-graph HPWL proxy (star decomposition around
+   346→    the centroid of the initial positions); the overlap term penalises
+   347→    footprint collisions. Both are minimised incrementally (only the moved
+   348→    component's contributions are recomputed per iteration).
+   349→
+   350→    Args:
+   351→        components: plain dicts (see ``_components_from_proto``).
+   352→        board: board dict (``width_mm`` / ``height_mm``).
+   353→        rng: seeded ``random.Random`` (determinism guarantee).
+   354→        iterations: annealing iteration cap.
+   355→        time_budget_s: wall-clock budget (checked every 64 iterations).
+   356→        overlap_weight: cost weight of one mm^2 of footprint overlap.
+   357→
+   358→    Returns:
+   359→        ``(positions, final_cost, wirelength_proxy_mm)``.
+   360→    """
+   361→    width = float(board.get("width_mm", 100.0) or 100.0)
+   362→    height = float(board.get("height_mm", 100.0) or 100.0)
+   363→    n = len(components)
+   364→    if n == 0:
+   365→        return [], 0.0, 0.0
+   366→
+   367→    halves: List[Tuple[float, float]] = []
+   368→    for comp in components:
+   369→        bbox = comp.get("bbox") or {}
+   370→        hw = max((float(bbox.get("max_x", 0.0)) - float(bbox.get("min_x", 0.0))) / 2.0, 0.0)
+   371→        hh = max((float(bbox.get("max_y", 0.0)) - float(bbox.get("min_y", 0.0))) / 2.0, 0.0)
+   372→        if hw <= 0.0 or hh <= 0.0:  # degenerate footprint: small default body
+   373→            hw = max(hw, 0.5)
+   374→            hh = max(hh, 0.5)
+   375→        halves.append((hw, hh))
+   376→
+   377→    fixed = [bool(c.get("fixed", False)) for c in components]
+   378→    positions: List[List[float]] = []
+   379→    for comp in components:
+   380→        pos = comp.get("position") or {}
+   381→        positions.append([float(pos.get("x", 0.0) or 0.0), float(pos.get("y", 0.0) or 0.0)])
+   382→
+   383→    movable = [i for i, is_fixed in enumerate(fixed) if not is_fixed]
+   384→    if movable and all(
+   385→        positions[i][0] == 0.0 and positions[i][1] == 0.0 for i in movable
+   386→    ):
+   387→        # Unplaced input: deterministic grid packing (rows), footprint-aware.
+   388→        ordered = sorted(movable, key=lambda i: components[i]["ref"])
+   389→        gap = 1.0
+   390→        cursor_x, cursor_y = 1.0, 1.0
+   391→        row_height = 0.0
+   392→        for i in ordered:
+   393→            hw, hh = halves[i]
+   394→            if cursor_x + hw > width - 1.0 and cursor_x > 1.0:
+   395→                cursor_x = 1.0
+   396→                cursor_y += row_height + gap
+   397→                row_height = 0.0
+   398→            positions[i] = [cursor_x + hw, cursor_y + hh]
+   399→            cursor_x += 2.0 * hw + gap
+   400→            row_height = max(row_height, 2.0 * hh)
+   401→
+   402→    for i in range(n):
+   403→        positions[i][0], positions[i][1] = _clamp_position(
+   404→            positions[i][0], positions[i][1], halves[i][0], halves[i][1], width, height
+   405→        )
+   406→
+   407→    anchor_x = sum(p[0] for p in positions) / n
+   408→    anchor_y = sum(p[1] for p in positions) / n
+   409→
+   410→    def contributions(index: int, pos: Sequence[float]) -> float:
+   411→        """Cost contributions of component ``index`` at ``pos``."""
+   412→        wire = math.hypot(pos[0] - anchor_x, pos[1] - anchor_y)
+   413→        overlap = 0.0
+   414→        for j in range(n):
+   415→            if j == index:
+   416→                continue
+   417→            overlap += _rect_overlap_area(pos, halves[index], positions[j], halves[j])
+   418→        return wire + overlap_weight * overlap
+   419→
+   420→    # True composite cost: star wirelength + weighted pairwise overlap.
+   421→    wire_total = sum(math.hypot(p[0] - anchor_x, p[1] - anchor_y) for p in positions)
+   422→    overlap_total = sum(
+   423→        _rect_overlap_area(positions[i], halves[i], positions[j], halves[j])
+   424→        for i in range(n)
+   425→        for j in range(i + 1, n)
+   426→    )
+   427→    total_cost = wire_total + overlap_weight * overlap_total
+   428→    best_cost = total_cost
+   429→    best_positions = [(p[0], p[1]) for p in positions]
+   430→
+   431→    step_max = max(0.5, 0.05 * min(width, height))
+   432→    step_min = 0.05
+   433→    t_start = max(0.25, 0.05 * total_cost)
+   434→    t_end = 0.01
+   435→    started = time.monotonic()
+   436→    span = max(1, iterations - 1)
+   437→
+   438→    for it in range(iterations):
+   439→        if it % 64 == 0 and (time.monotonic() - started) > time_budget_s:
+   440→            break
+   441→        temperature = t_start * ((t_end / t_start) ** (it / span))
+   442→        if not movable:
+   443→            break
+   444→        index = movable[rng.randrange(len(movable))]
+   445→        progress = it / span
+   446→        step = step_max + (step_min - step_max) * progress
+   447→        old_pos = (positions[index][0], positions[index][1])
+   448→        proposed = _clamp_position(
+   449→            old_pos[0] + rng.gauss(0.0, step),
+   450→            old_pos[1] + rng.gauss(0.0, step),
+   451→            halves[index][0],
+   452→            halves[index][1],
+   453→            width,
+   454→            height,
+   455→        )
+   456→        old_contrib = contributions(index, old_pos)
+   457→        new_contrib = contributions(index, proposed)
+   458→        delta = new_contrib - old_contrib
+   459→        if delta <= 0.0 or rng.random() < math.exp(-delta / max(temperature, 1e-9)):
+   460→            positions[index][0], positions[index][1] = proposed
+   461→            total_cost += delta
+   462→            if total_cost < best_cost:
+   463→                best_cost = total_cost
+   464→                best_positions = [(p[0], p[1]) for p in positions]
+   465→
+   466→    wire_proxy = sum(
+   467→        math.hypot(p[0] - anchor_x, p[1] - anchor_y) for p in best_positions
+   468→    )
+   469→    return best_positions, best_cost, wire_proxy
+   470→
+   471→
+   472→# ==========================================================================
+   473→# Servicer
+   474→# ==========================================================================
+   475→
+   476→
+   477→def _detect_device(preference: str = "auto") -> str:
+   478→    """Resolve the torch device WITHOUT importing torch eagerly."""
+   479→    try:
+   480→        import torch  # lazy: only to probe CUDA availability
+   481→        has_cuda = bool(torch.cuda.is_available())
+   482→    except Exception:
+   483→        return "cpu"
+   484→    if preference == "cuda" and has_cuda:
+   485→        return "cuda"
+   486→    if preference == "auto" and has_cuda:
+   487→        return "cuda"
+   488→    return "cpu"
+   489→
+   490→
+   491→def _load_yaml_config(config_path: Optional[str]) -> dict:
+   492→    """Load the training/router YAML config (defensively)."""
+   493→    candidates: List[str] = []
+   494→    if config_path:
+   495→        candidates.append(config_path)
+   496→    candidates.append(str(AI_ENGINE_ROOT / "training" / "router" / "config.yaml"))
+   497→    for path in candidates:
+   498→        if path and os.path.isfile(path):
+   499→            try:
+   500→                import yaml
+   501→
+   502→                with open(path, "r", encoding="utf-8") as handle:
+   503→                    data = yaml.safe_load(handle) or {}
+   504→                if isinstance(data, dict):
+   505→                    return data
+   506→            except Exception:
+   507→                continue
+   508→    return {}
+   509→
+   510→
+   511→class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
+   512→    """Implementation of ``kidcad.pcb.v1.AIRouterService``."""
+   513→
+   514→    def __init__(self, config_path: Optional[str] = None, logger: Optional[logging.Logger] = None) -> None:
+   515→        """Args:
+   516→        config_path: optional YAML config override (defaults to
+   517→            ``training/router/config.yaml`` inside the ai-engine root).
+   518→        logger: optional logger (defaults to ``kidcad.ai``).
+   519→        """
+   520→        self._log = logger if logger is not None else logging.getLogger("kidcad.ai")
+   521→        self.version = "0.1.0"
+   522→
+   523→        config = _load_yaml_config(config_path)
+   524→        router_cfg = config.get("router") or {}
+   525→        env_cfg = config.get("env") or {}
+   526→        placer_cfg = config.get("placer") or {}
+   527→        optimizer_cfg = config.get("optimizer") or {}
+   528→
+   529→        model_path = str(router_cfg.get("model_path", "training/router/model_v1.pt") or "")
+   530→        self._model_path = self._resolve_model_path(model_path)
+   531→        self._device = _detect_device(str(router_cfg.get("device", "auto") or "auto"))
+   532→        self._clearance_cells = max(0, int(env_cfg.get("clearance_cells", 1) or 1))
+   533→        # Placement seed: derived from the request (number of components) for
+   534→        # determinism, unless the YAML config pins an explicit integer seed.
+   535→        raw_seed = placer_cfg.get("seed")
+   536→        placer_seed = int(raw_seed) if isinstance(raw_seed, (int, float)) else None
+   537→        self._placer_cfg = {
+   538→            "iterations": max(1, int(placer_cfg.get("iterations", 1500) or 1500)),
+   539→            "time_budget_s": max(0.05, float(placer_cfg.get("time_budget_ms", 2000) or 2000) / 1000.0),
+   540→            "seed": placer_seed,
+   541→        }
+   542→        self._optimizer_cfg = {
+   543→            "via_cost_mm": float(optimizer_cfg.get("via_cost_mm", 2.0) or 2.0),
+   544→            "drc_cost": float(optimizer_cfg.get("drc_cost", 10.0) or 10.0),
+   545→            "clearance_mm": float(optimizer_cfg.get("clearance_mm", _DEFAULT_CLEARANCE_MM) or _DEFAULT_CLEARANCE_MM),
+   546→        }
+   547→        self._agent = self._load_rl_agent()
+   548→
+   549→    # ------------------------------------------------------------- internals
+   550→
+   551→    def _resolve_model_path(self, model_path: str) -> Optional[str]:
+   552→        """Resolve the checkpoint path (absolute or ai-engine relative)."""
+   553→        if not model_path:
+   554→            return None
+   555→        candidate = Path(model_path)
+   556→        if not candidate.is_absolute():
+   557→            candidate = AI_ENGINE_ROOT / candidate
+   558→        return str(candidate) if candidate.is_file() else None
+   559→
+   560→    def _load_rl_agent(self):
+   561→        """Load the trained PPO router when torch + checkpoint are available.
+   562→
+   563→        Returns the agent or ``None`` (the service then falls back to the
+   564→        deterministic A* router; this is the expected mode in production).
+   565→        """
+   566→        if not self._model_path:
+   567→            return None
+   568→        try:
+   569→            import torch  # lazy: only executed when a checkpoint exists
+   570→
+   571→            try:
+   572→                from .agents.ppo_agent import PPOAgent, PPOConfig
+   573→            except ImportError:  # pragma: no cover - direct import layout
+   574→                from src.agents.ppo_agent import PPOAgent, PPOConfig
+   575→
+   576→            router_cfg = {}
+   577→            try:
+   578→                import yaml
+   579→                config = _load_yaml_config(None)
+   580→                router_cfg = config.get("router") or {}
+   581→            except Exception:
+   582→                pass
+   583→            in_channels = max(1, int(router_cfg.get("in_channels", 5) or 5))
+   584→            agent = PPOAgent(
+   585→                PPOConfig(),
+   586→                in_channels=in_channels,
+   587→                n_actions=12,
+   588→                device="cuda" if torch.cuda.is_available() else "cpu",
+   589→            )
+   590→            if agent.load(self._model_path):
+   591→                self._log.info("RL router loaded from %s", self._model_path)
+   592→                return agent
+   593→            self._log.warning("RL router checkpoint unreadable: %s", self._model_path)
+   594→        except Exception as exc:
+   595→            self._log.warning("RL router unavailable (A* fallback active): %s", exc)
+   596→        return None
+   597→
+   598→    def _env_config(self) -> EnvConfig:
+   599→        """EnvConfig used for every routing request."""
+   600→        return EnvConfig(clearance_cells=self._clearance_cells, seed=0)
+   601→
+   602→    def _rl_route(self, env: PCBRouteEnv, net_index: int) -> Optional[dict]:
+   603→        """Greedy RL rollout for one net; ``None`` when it fails to connect."""
+   604→        agent = self._agent
+   605→        if agent is None:
+   606→            return None
+   607→        try:
+   608→            obs = env.reset(net_index)
+   609→            info: dict = {}
+   610→            for _ in range(env.max_steps):
+   611→                action = agent.select_action(obs, greedy=True)
+   612→                obs, _reward, terminated, truncated, info = env.step(action)
+   613→                if terminated or truncated:
+   614→                    break
+   615→            if not info.get("success"):
+   616→                return None
+   617→            return env.path_to_route(net_index, env.episode_path)
+   618→        except Exception as exc:
+   619→            self._log.warning("RL rollout failed on net %s: %s", env.net_names[net_index], exc)
+   620→            return None
+   621→
+   622→    # -------------------------------------------------------------- health
+   623→
+   624→    def GetHealth(self, request, context) -> pb.HealthResponse:
+   625→        """Report service health.
+   626→
+   627→        The service answers ``ok`` whenever it is alive; ``model_loaded`` is
+   628→        False when no RL checkpoint is available, which is the nominal
+   629→        production mode (deterministic A* fallback). ``degraded`` is kept for
+   630→        a future partial-failure mode.
+   631→        """
+   632→        return pb.HealthResponse(
+   633→            status="ok",
+   634→            version=self.version,
+   635→            device=self._device,
+   636→            model_loaded=self._agent is not None,
+   637→        )
+   638→
+   639→    # ----------------------------------------------------------- placement
+   640→
+   641→    def PlanPlacement(self, request, context) -> pb.PlacementResult:
+   642→        """Simulated-annealing placement (deterministic seed).
+   643→
+   644→        Only non-fixed components move; the optimised cost is a
+   645→        complete-graph HPWL proxy plus a footprint-overlap penalty.
+   646→        """
+   647→        try:
+   648→            board = _board_to_dict(request.board)
+   649→            components = _components_from_proto(request.components)
+   650→            # Deterministic seed: derived from the request size, so identical
+   651→            # inputs always produce identical placements (config may override).
+   652→            seed = self._placer_cfg["seed"]
+   653→            if seed is None:
+   654→                seed = len(components)
+   655→            positions, cost, wire_proxy = _simulated_annealing_placement(
+   656→                components,
+   657→                board,
+   658→                random.Random(seed),
+   659→                iterations=self._placer_cfg["iterations"],
+   660→                time_budget_s=self._placer_cfg["time_budget_s"],
+   661→            )
+   662→            result = pb.PlacementResult(
+   663→                total_wirelength_mm=round(wire_proxy, 4),
+   664→                score=round(cost, 4),
+   665→                strategy="rl" if (str(request.strategy or "") == "rl" and self._agent is not None) else "heuristic",
+   666→            )
+   667→            for comp, (x, y) in zip(components, positions):
+   668→                moved = dict(comp)
+   669→                moved["position"] = {"x": x, "y": y}
+   670→                result.placed.append(_component_to_proto(moved))
+   671→            self._log.info(
+   672→                "PlanPlacement: %d components, cost=%.2f, wire_proxy=%.2f mm",
+   673→                len(components), cost, wire_proxy,
+   674→            )
+   675→            return result
+   676→        except Exception as exc:
+   677→            self._log.exception("PlanPlacement failed")
+   678→            context.abort(grpc.StatusCode.INTERNAL, f"PlanPlacement failed: {exc}")
+   679→
+   680→    # ------------------------------------------------------------- routing
+   681→
+   682→    def RouteBoard(self, request, context):
+   683→        """Server-streaming routing: one ``ProgressEvent`` per net, final done.
+   684→
+   685→        Nets are routed shortest-first (unless ``net_filter`` prescribes the
+   686→        order); every completed route becomes an obstacle for the next nets.
+   687→        """
+   688→        started = time.monotonic()
+   689→        try:
+   690→            board = _board_to_dict(request.board)
+   691→            all_nets = _nets_to_dicts(request.nets)
+   692→            job_id = _job_id_from_context(context)
+   693→            env = PCBRouteEnv(board, all_nets, self._env_config())
+   694→
+   695→            filters = [str(name) for name in request.net_filter if str(name)]
+   696→            index_by_name = {net["name"]: i for i, net in enumerate(all_nets)}
+   697→            if filters:
+   698→                seen: set = set()
+   699→                selected = []
+   700→                for name in filters:
+   701→                    if name in index_by_name and name not in seen:
+   702→                        seen.add(name)
+   703→                        selected.append(all_nets[index_by_name[name]])
+   704→            else:
+   705→                selected = sorted(all_nets, key=lambda net: (_estimate_net_length(net), net["name"]))
+   706→
+   707→            use_rl = (
+   708→                str(request.strategy or "") == "rl"
+   709→                and self._agent is not None
+   710→                and env.observation_shape[0] == self._agent.in_channels
+   711→            )
+   712→            strategy = "rl" if use_rl else "astar"
+   713→            total = len(selected)
+   714→            results: List[pb.RouteNetResult] = []
+   715→            result_dicts: List[dict] = []
+   716→
+   717→            for k, net in enumerate(selected):
+   718→                if not context.is_active():
+   719→                    self._log.info("RouteBoard cancelled by the client")
+   720→                    return
+   721→                net_index = index_by_name[net["name"]]
+   722→                route = self._rl_route(env, net_index) if use_rl else None
+   723→                if route is None:
+   724→                    route = env.astar_route(net_index)
+   725→                violations = _drc_violations_for_net(
+   726→                    route, result_dicts, self._optimizer_cfg["clearance_mm"]
+   727→                )
+   728→                route["drc_violations"] = violations
+   729→                result = _route_to_proto(route)
+   730→                results.append(result)
+   731→                result_dicts.append(route)
+   732→                percent = 100.0 * (k + 1) / total if total else 100.0
+   733→                status = "completed" if result.completed else "UNROUTED"
+   734→                message = (
+   735→                    f"{net['name']}: {result.length_mm:.1f} mm, "
+   736→                    f"{len(result.vias)} via(s) - {status}"
+   737→                )
+   738→                yield pb.ProgressEvent(
+   739→                    job_id=job_id,
+   740→                    stage="route",
+   741→                    current_net=net["name"],
+   742→                    percent=percent,
+   743→                    message=message,
+   744→                    partial=result,
+   745→                    done=False,
+   746→                )
+   747→
+   748→            elapsed_ms = (time.monotonic() - started) * 1000.0
+   749→            completed = sum(1 for r in results if r.completed)
+   750→            yield pb.ProgressEvent(
+   751→                job_id=job_id,
+   752→                stage="route",
+   753→                percent=100.0,
+   754→                done=True,
+   755→                message=f"{completed}/{total} nets routés en {elapsed_ms:.0f} ms (stratégie={strategy})",
+   756→            )
+   757→        except Exception as exc:
+   758→            self._log.exception("RouteBoard failed")
+   759→            yield pb.ProgressEvent(stage="route", done=True, error=str(exc))
+   760→
+   761→    # ----------------------------------------------------------- optimizing
+   762→
+   763→    def OptimizeRoutes(self, request, context):
+   764→        """Rip-up & reroute of the longest nets (server-streaming).
+   765→
+   766→        For each net (longest first) the old geometry is ripped up and a
+   767→        fresh A* route is computed with all other routes as obstacles; the
+   768→        shorter/compliant result is kept.
+   769→        """
+   770→        started = time.monotonic()
+   771→        try:
+   772→            board = _board_to_dict(request.board)
+   773→            nets = _nets_to_dicts(request.nets)
+   774→            routes = [_route_result_to_dict(r) for r in request.routes]
+   775→            job_id = _job_id_from_context(context)
+   776→            objectives = [str(o) for o in request.objectives if str(o)] or ["length", "vias", "drc"]
+   777→            via_cost = self._optimizer_cfg["via_cost_mm"]
+   778→            drc_cost = self._optimizer_cfg["drc_cost"]
+   779→
+   780→            def score(route: dict) -> float:
+   781→                value = float(route.get("length_mm", 0.0) or 0.0)
+   782→                if "vias" in objectives:
+   783→                    value += via_cost * len(route.get("vias") or [])
+   784→                if "drc" in objectives:
+   785→                    value += drc_cost * int(route.get("drc_violations", 0) or 0)
+   786→                return value
+   787→
+   788→            env = PCBRouteEnv(board, nets, self._env_config())
+   789→            env.set_routes(routes)
+   790→            index_by_name = {net["name"]: i for i, net in enumerate(nets)}
+   791→
+   792→            candidates = [
+   793→                route
+   794→                for route in routes
+   795→                if route.get("net") in index_by_name
+   796→                and (route.get("segments") or route.get("vias"))
+   797→            ]
+   798→            candidates.sort(key=lambda route: (-float(route.get("length_mm", 0.0) or 0.0), route.get("net", "")))
+   799→
+   800→            total = len(candidates)
+   801→            improved = 0
+   802→            saved_mm = 0.0
+   803→            for k, old in enumerate(candidates):
+   804→                if not context.is_active():
+   805→                    self._log.info("OptimizeRoutes cancelled by the client")
+   806→                    return
+   807→                name = old["net"]
+   808→                old_length = float(old.get("length_mm", 0.0) or 0.0)
+   809→                env.clear_net_route(name)
+   810→                new = env.astar_route(index_by_name[name])
+   811→                prior = [r for r in routes if r.get("net") != name]
+   812→                if new.get("completed") and score(new) < score(old) - 1e-6:
+   813→                    new["drc_violations"] = _drc_violations_for_net(
+   814→                        new, prior, self._optimizer_cfg["clearance_mm"]
+   815→                    )
+   816→                    kept = new
+   817→                    improved += 1
+   818→                    saved_mm += old_length - float(new.get("length_mm", 0.0) or 0.0)
+   819→                    message = f"{name}: {old_length:.1f} -> {float(new.get('length_mm', 0.0)):.1f} mm"
+   820→                else:
+   821→                    env.clear_net_route(name)
+   822→                    env.set_routes([old])
+   823→                    kept = old
+   824→                    message = f"{name}: kept ({old_length:.1f} mm)"
+   825→                # keep the working set coherent for the next iterations
+   826→                routes = [r for r in routes if r.get("net") != name] + [kept]
+   827→                result = _route_to_proto(kept)
+   828→                yield pb.ProgressEvent(
+   829→                    job_id=job_id,
+   830→                    stage="optimize",
+   831→                    current_net=name,
+   832→                    percent=100.0 * (k + 1) / total if total else 100.0,
+   833→                    message=message,
+   834→                    partial=result,
+   835→                    done=False,
+   836→                )
+   837→
+   838→            elapsed_ms = (time.monotonic() - started) * 1000.0
+   839→            yield pb.ProgressEvent(
+   840→                job_id=job_id,
+   841→                stage="optimize",
+   842→                percent=100.0,
+   843→                done=True,
+   844→                message=(
+   845→                    f"{improved}/{total} nets optimisés en {elapsed_ms:.0f} ms, "
+   846→                    f"{saved_mm:.1f} mm gagnés"
+   847→                ),
+   848→            )
+   849→        except Exception as exc:
+   850→            self._log.exception("OptimizeRoutes failed")
+   851→            yield pb.ProgressEvent(stage="optimize", done=True, error=str(exc))
+   852→
+   853→    # ------------------------------------------------------------ properties
+   854→
+   855→    @property
+   856→    def device(self) -> str:
+   857→        """Torch device in use ("cpu" when torch is absent)."""
+   858→        return self._device
+   859→
+   860→    @property
+   861→    def model_loaded(self) -> bool:
+   862→        """True when the RL router checkpoint is loaded."""
+   863→        return self._agent is not None
+   864→

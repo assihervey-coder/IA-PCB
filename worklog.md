@@ -215,3 +215,38 @@ Stage Summary:
 - go build ./backend/... OK, go vet OK, go test ./backend/... OK (magic 7, arena 4, integration)
 - pytest evo_place 5/5 OK, tsc --noEmit OK, démo evo_place converge 118→57.6 mm HPWL
 - Commit + push vers github.com/assihervey-coder/IA-PCB (main)
+
+---
+Task ID: 3
+Agent: Super Z (main)
+Task: Implémentation du Pack WOW — fonctions qui surprennent 99,9% des experts + good to have + best to have
+
+Work Log:
+- Exploration complète du codebase existant (router REST, hub WS, magic pack, arena, DRC, stores frontend, SCSS)
+- Backend Go — WOW :
+  * verification/autofix.go : Auto-Healer DRC (largeurs/vias/marges, confiance par fix, dry-run sûr via clone profond — le repo mémoire partage les pointeurs board !), contre-vérification DRC réelle après application
+  * application/doctor : Design Doctor noté /100 (pondérations 25/25/25/15/10), grade A+→D, radar 5 axes, ordonnances priorisées avec gains
+  * application/dfm : Oracle coût & rendement (3 volumes, surtaxes détaillées, rendement Erlang par cause, conseils)
+  * application/timemachine : snapshots (anneau 20/projet), diff structurel (composants/cuivre/vias/règles), restauration réversible avec capture de sécurité
+- Backend Go — GOOD/BEST :
+  * application/stats : agrégats live (cuivre/couche, top nets, classes, occupation)
+  * websocket/presence.go : extension additive du hub (presence move/join/leave relayés par projet)
+- REST : wow_handler.go (8 endpoints), DTOs dédiés dans dto.go, routes additives dans router.go, wiring main.go
+- Tests Go : autofix (dry-run isolation + healing complet + clone), doctor, dfm, timemachine (aller-retour), stats — tous verts
+- Frontend :
+  * types.ts/rest-client.ts : types + 8 méthodes API nouvelles
+  * ws-client.ts : PresenceSocket + localUserName() ; project-store.ts : piles undo/redo (30 niveaux) + pushHistory
+  * Composants : wow/DesignDoctor (radar SVG), wow/DFMOracle (jauge demi-cercle SVG), wow/TimeMachine, wow/StatsPanel, presence/PresenceLayer (curseurs distants + avatars, GC 15s, throttle 11Hz), shortcuts/ShortcutsOverlay (?)
+  * MagicBar : bouton micro 🎙 (Web Speech API fr-FR, détection de support)
+  * page pcb-layout : boutons 🩹 Auto-fix / 🩺 Diagnostic / 💰 DFM / 🕰 Historique / 📊 Stats / ↶↷, raccourcis Ctrl+Z/Ctrl+Maj+Z, panneau autofix, modales, PresenceLayer
+  * globals.scss : ~620 lignes de styles Pack WOW (grade, radar, cartes prix, jauge, diff, stats bars, présence, shortcuts)
+- Docs : docs/guides/guide-pack-wow.md + section README Pack WOW
+- Vérifications : go build/vet/test verts, npx tsc --noEmit vert, next build vert (10 pages)
+- Git : commit 0c2165f (32 fichiers, +6422/-832) pushé sur origin/main (github.com/assihervey-coder/IA-PCB)
+- Note environnement : Go absent du système → installé dans /home/z/.local/go (1.22.10) pour compiler/tester
+
+Stage Summary:
+- Pack WOW complet livré et pushé (commit 0c2165f sur main)
+- 4 fonctions WOW (Auto-Healer, Doctor, DFM Oracle, Time Machine) + 3 good-to-have (stats, raccourcis, voix) + 2 best-to-have (présence live, undo/redo)
+- Contrat figé contracts.md respecté : tout est additif, pattern Magic Pack
+- Tests backend + typecheck + build frontend 100% verts
