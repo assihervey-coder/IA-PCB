@@ -1,10 +1,13 @@
 # KidCAD-Pro-IA — Monorepo
 
+![CI](https://github.com/assihervey-coder/IA-PCB/actions/workflows/ci.yml/badge.svg)
+![Version](https://img.shields.io/badge/version-v0.1.0-blueviolet)
 ![Licence](https://img.shields.io/badge/licence-AGPL--3.0-blue)
 ![Go](https://img.shields.io/badge/Go-1.22-00ADD8)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776AB)
 ![Next.js](https://img.shields.io/badge/Next.js-14-black)
 ![gRPC](https://img.shields.io/badge/gRPC-proto3-244C5A)
+[![Release](https://img.shields.io/badge/release-v0.1.0-4c1)](https://github.com/assihervey-coder/IA-PCB/releases/tag/v0.1.0)
 
 **KidCAD-Pro-IA** est un logiciel de CAO électronique (EDA) piloté par l'IA : de la
 netlist au dossier de fabrication. Architecture hexagonale (ports & adaptateurs)
@@ -121,6 +124,27 @@ make run-frontend         # Next.js sur :3000
 > moteur IA** (les routes IA répondent `ai_unreachable`). Le frontend affiche un
 > **mode démo** autonome si l'API est injoignable.
 
+### Démo en 30 secondes : la carte cauchemar 🧟
+
+```bash
+# 1. Générer une carte volontairement mauvaise (fautes réelles) :
+curl -s -X POST http://localhost:8080/api/v1/demo/nightmare | jq
+
+# 2. Le Design Doctor rend un verdict sévère (score ~55, grade D) :
+curl -s http://localhost:8080/api/v1/projects/<id>/doctor | jq '.score,.grade'
+
+# 3. L'Auto-Healer DRC répare en un appel (largeurs, vias, bord) :
+curl -s -X POST http://localhost:8080/api/v1/projects/<id>/drc/autofix | jq
+
+# 4. Compléter le routage puis admirer la remontée du score :
+curl -s -X POST http://localhost:8080/api/v1/projects/<id>/route -d '{"strategy":"astar"}'
+curl -s http://localhost:8080/api/v1/projects/<id>/doctor | jq '.score,.grade'
+```
+
+`GET /healthz` signale l'état du moteur RL : `ai_engine` (`ok`/`unreachable`),
+`ai_device` (`cpu`/`cuda`) et `ai_model_loaded` (`true` quand un checkpoint
+entraîné est chargé).
+
 ## Variables d'environnement du backend
 
 | Variable | Défaut | Rôle |
@@ -144,6 +168,14 @@ make run-frontend         # Next.js sur :3000
 L'entraînement RL (PyTorch) est un pipeline optionnel : voir
 `ai-engine/README.md`, `ai-engine/training/` et `scripts/generate-models.sh`.
 L'inférence ne requiert **jamais** torch.
+
+```bash
+# Entraîner le routeur PPO (torch requis, cf. ai-engine/training/router/README.md) :
+make train-router STEPS=200000
+# → training/router/model_v1.pt ; redémarrez le moteur IA :
+#   GET /healthz renvoie alors "ai_model_loaded": true
+#   et POST .../route {"strategy":"rl"} utilise le modèle (repli A* sinon).
+```
 
 ## Tests
 
@@ -186,6 +218,19 @@ testées et documentées dans [`docs/guides/guide-pack-wow.md`](docs/guides/guid
 | ⌨️ Raccourcis | frontend | aide-mémoire « ? » |
 | 🎙 Voix | frontend | dictée des commandes copilot (Web Speech API, fr-FR) |
 
+## Extensions v0.2 — multi-couches, plans de masse, classes de nets, collaboration
+
+| Fonction | Endpoint | Description |
+|---|---|---|
+| 🗺️ Routage multi-couches | `POST .../route` | A* et RL opèrent sur **N couches** (1–34) : le moteur IA reçoit `layer_count`/`layer_names` et insère les vias de changement de couche lui-même |
+| 🟩 Plans de masse (copper pours) | `POST .../pours` | génération/re-fill de plans GND par couche, remplissage par échantillonnage respectant les clearances, **couture de vias** en quinconce, persistance interchange/SQL/REST |
+| 🏷️ Classes de nets | `GET/PUT .../netclasses` | classement des nets (`power`, `high-speed`…), règles par classe (largeur, isolation, via, perçage) transmises au moteur IA ; `POST .../route {"nets":[...]}` pour router une sélection |
+| 👥 Collaboration CRDT | `POST/GET .../collab/*` | édition multi-utilisateurs (registres LWW + horloges de Lamport), diffusion WebSocket `type:"collab"`, **undo/redo par acteur persistant** (journal JSONL rejoué au redémarrage) |
+| 🩺 Doctor ↔ moteur RL | `GET .../doctor` | axe `ai` (device, `model_loaded`) + **répétition sandbox** : prédiction chiffrée du routage des nets manquants par le moteur RL, sans rien appliquer |
+
+Guide pas-à-pas : [`docs/guides/guide-avances.md`](docs/guides/guide-avances.md) —
+détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/architecture/contracts.md).
+
 ## Documentation
 
 - [`docs/architecture/contracts.md`](docs/architecture/contracts.md) — contrats d'interface (source de vérité)
@@ -193,6 +238,7 @@ testées et documentées dans [`docs/guides/guide-pack-wow.md`](docs/guides/guid
 - [`docs/api/openapi.yaml`](docs/api/openapi.yaml) — spécification OpenAPI 3
 - [`docs/guides/guide-demarrage-rapide.md`](docs/guides/guide-demarrage-rapide.md) — tutoriel
 - [`docs/guides/guide-utilisateur.md`](docs/guides/guide-utilisateur.md) — manuel utilisateur
+- [`docs/guides/guide-avances.md`](docs/guides/guide-avances.md) — plans de masse, classes de nets, CRDT, démo cauchemar
 
 ## Licence
 

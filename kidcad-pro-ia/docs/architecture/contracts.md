@@ -355,3 +355,77 @@ Fixture de test : `tests/fixtures/sample.kicad_pcb` (doit se parser sans erreur,
 - TypeScript : strict, composants clients `"use client"`, exports nommés.
 - Tous les textes utilisateur (README, docs, UI) en **français**.
 - Aucun TODO/placeholder : code complet et fonctionnel.
+
+## 11. Endpoints additifs (hors contrat figé §2) — v0.2
+
+Tous les endpoints ci-dessous sont **additifs** : ils n'altèrent ni les DTOs
+ni les routes du contrat initial. Ils suivent les mêmes conventions (JSON
+snake_case, `ErrorResponse` uniforme, erreurs `not_found` / `invalid` /
+`ai_unreachable`).
+
+### Plans de masse (copper pours)
+
+| Route | Rôle |
+|---|---|
+| `POST /api/v1/projects/{id}/pours` | génère/re-remplit les plans d'un net (corps `PourGenerateRequest` : `net`, `layers`, `clearance_mm`, `hatch_mm`, `is_ground`, `edge_margin_mm`, `stitch`, `stitch_grid_mm`) |
+| `GET /api/v1/projects/{id}/pours` | liste des pours |
+| `DELETE /api/v1/projects/{id}/pours?net=GND` | suppression par net (sans paramètre : tout) |
+| `DELETE /api/v1/projects/{id}/pours/{pourID}` | suppression unitaire |
+
+Le remplissage est calculé par échantillonnage (pas 0.25–0.5 mm, budget
+120 000 points) en respectant l'isolement autour de chaque piste/pad/via
+étranger de la couche. La couture (vias GND) relie les couches du plan par
+quinconce, hors zones de clearance, cap 400 vias. Les pours voyagent dans le
+format interchange (`layout.pours[]`), la persistance SQL et le `LayoutData`
+REST ; un `PUT /layout` qui ne les mentionne pas les **conserve**.
+
+### Classes de nets (autoroutage interactif)
+
+| Route | Rôle |
+|---|---|
+| `GET /api/v1/projects/{id}/netclasses` | vue d'ensemble : nets + classe + valeurs effectives (`effective`), classes connues (`default`, `power`, `signal`, `high-speed`) et règles scopées |
+| `PUT /api/v1/projects/{id}/netclasses/{net}` | `{"net_class":"power"}` reclasse un net (schéma requis) |
+| `PUT /api/v1/projects/{id}/netclasses/{class}/rules` | upsert des règles de classe (`min_track_width_mm`, `min_clearance_mm`, `min_via_diameter_mm`, `min_drill_mm`) |
+
+La sélection de nets à router reste `POST .../route` avec `{"nets":["USB_D+"]}` ;
+les valeurs `effective` sont exactement celles transmises au moteur IA
+(`NetSpec.min_track_width_mm`, `clearance_mm`).
+
+### Collaboration CRDT + undo/redo persistant
+
+| Route | Rôle |
+|---|---|
+| `POST /api/v1/projects/{id}/collab/ops` | applique un lot d'ops `{actor, ops:[{client_id?, lamport?, kind, target?, payload}]}` |
+| `GET /api/v1/projects/{id}/collab/state?since=N` | séquence, horloge vectorielle, rattrapage des ops > N |
+| `POST /api/v1/projects/{id}/collab/undo` | `{"actor":"alice"}` — annule la dernière op annulable de l'acteur |
+| `POST /api/v1/projects/{id}/collab/redo` | rétablit |
+
+Vocabulaire d'ops : `component.move`, `component.rotate`, `track.add`,
+`track.remove`, `via.add`, `via.remove`, `constraint.width`. Modèle : CRDT
+op-based, registres LWW par (lamport, acteur) pour position/rotation/règles,
+ensembles additifs dédupliqués pour le cuivre. Les ops appliquées sont
+diffusées sur `/ws/v1/progress` (`type:"collab"`). Le journal JSONL sous
+`$KIDCAD_DATA_DIR/collab/<project>.jsonl` rend l'historique undo/redo
+**persistant** : au redémarrage il est rejoué en « bookkeeping seul » (la
+carte du dépôt est déjà à jour) et les piles par acteur sont reconstruites.
+
+### Démo « carte cauchemar »
+
+| Route | Rôle |
+|---|---|
+| `POST /api/v1/demo/nightmare` | crée un projet semé de fautes réelles (pistes fines, vias sous-dimensionnés, piste collée au bord, nets non routés, aucune règle) et renvoie la liste des fautes avec la séquence de réparation |
+
+Scénario de démonstration complet :
+`POST /demo/nightmare` → `GET .../doctor` (score D) → `POST .../drc/autofix`
+→ `POST .../route` → `GET .../doctor` (score remonté).
+
+### Design Doctor ↔ moteur RL
+
+- Le port `layoutapp.AIService` gagne `EngineInfo(ctx) (EngineInfo, error)`
+  (sonde `GetHealth` : `status`, `version`, `device`, `model_loaded`).
+- `/healthz` expose additivement `ai_device`, `ai_model_loaded`, `ai_version`.
+- `GET .../doctor` expose l'axe transversal `ai` (`reachable`, `device`,
+  `model_loaded`, `strategy` = `rl` si un modèle est chargé, sinon `astar`)
+  et, quand des nets restent non routés, une `rehearsal` : le moteur route
+  ces nets en **sandbox** (rien n'est persisté) et le rapport prédit
+  « X/Y nets routables, Z mm de cuivre » avec une ordonnance chiffrée.
