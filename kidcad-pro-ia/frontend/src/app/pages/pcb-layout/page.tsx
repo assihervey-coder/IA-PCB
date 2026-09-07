@@ -3,11 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, isBackendDown } from "@/lib/api/rest-client";
-import type { DRCResult, DRCViolation, LayoutComponent, LayoutData } from "@/lib/api/types";
+import type { AutoFixResult, DRCResult, DRCViolation, LayoutComponent, LayoutData } from "@/lib/api/types";
 import { useProjectStore } from "@/lib/store/project-store";
 import { useUIStore } from "@/lib/store/ui-store";
 import { Button } from "@/app/components/buttons/Button";
 import { Modal } from "@/app/components/modals/Modal";
+import { DesignDoctor } from "@/app/components/wow/DesignDoctor";
+import { DFMOracle } from "@/app/components/wow/DFMOracle";
+import { TimeMachine } from "@/app/components/wow/TimeMachine";
+import { StatsPanel } from "@/app/components/wow/StatsPanel";
+import { PresenceLayer } from "@/app/components/presence/PresenceLayer";
 import {
   ComponentPropertiesForm,
   type ComponentPropertiesPatch,
@@ -147,6 +152,11 @@ export default function PcbLayoutPage() {
   const setDRC = useProjectStore((s) => s.setDRC);
   const refreshLayout = useProjectStore((s) => s.refreshLayout);
   const loadDemoData = useProjectStore((s) => s.loadDemoData);
+  const pushHistory = useProjectStore((s) => s.pushHistory);
+  const undo = useProjectStore((s) => s.undo);
+  const redo = useProjectStore((s) => s.redo);
+  const historyPast = useProjectStore((s) => s.historyPast);
+  const historyFuture = useProjectStore((s) => s.historyFuture);
   const pushToast = useUIStore((s) => s.pushToast);
 
   const [projectId, setProjectId] = useState<string | null>(null);
@@ -156,6 +166,11 @@ export default function PcbLayoutPage() {
   const [zoomLabel, setZoomLabel] = useState(100);
   const [busyAction, setBusyAction] = useState<string | null>(null);
   const [canvasSize, setCanvasSize] = useState({ w: 0, h: 0 });
+  const [showDoctor, setShowDoctor] = useState(false);
+  const [showDFM, setShowDFM] = useState(false);
+  const [showTimeMachine, setShowTimeMachine] = useState(false);
+  const [showStats, setShowStats] = useState(false);
+  const [autoFix, setAutoFix] = useState<AutoFixResult | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewRef = useRef<PanZoom>({ offsetX: 0, offsetY: 0, scale: 10 });
@@ -469,6 +484,7 @@ export default function PcbLayoutPage() {
     }
     setBusyAction("place");
     try {
+      pushHistory();
       await api.startPlace(projectId, "heuristic");
       await refreshLayout(projectId);
       pushToast("Placement IA terminé, layout mis à jour.", "success");
@@ -541,9 +557,83 @@ export default function PcbLayoutPage() {
     }
   };
 
+  /** Auto-Healer DRC : répare largeurs, vias et marges en un clic (wow). */
+  const handleAutoFix = async () => {
+    if (busyAction) return;
+    const data = useProjectStore.getState().layout;
+    if (!data) return;
+    if (!projectId || demoMode) {
+      pushToast("Auto-Healer disponible en mode connecté (backend requis).", "info");
+      return;
+    }
+    setBusyAction("autofix");
+    try {
+      const res = await api.drcAutoFix(projectId, false);
+      setAutoFix(res);
+      if (res.board_changed) {
+        pushHistory();
+        await refreshLayout(projectId);
+      }
+      // Les marqueurs DRC sont recalculés pour refléter les réparations.
+      try {
+        setDRC(await api.runDRC(projectId));
+      } catch {
+        /* marqueurs optionnels */
+      }
+      pushToast(
+        res.violations_after === 0 && res.violations_before > 0
+          ? `🩹 ${res.violations_before} violation(s) réparée(s) — DRC conforme !`
+          : `🩹 Auto-fix : ${res.fixed} réparé(s), ${res.violations_after} restant(s).`,
+        res.violations_after === 0 ? "success" : "info",
+      );
+    } catch (err) {
+      if (isBackendDown(err)) {
+        pushToast("Auto-Healer : backend injoignable.", "error");
+      } else {
+        pushToast("Auto-Healer : réparation impossible (carte absente ?).", "error");
+      }
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleUndo = () => {
+    if (historyPast.length === 0) {
+      pushToast("Rien à annuler.", "info");
+      return;
+    }
+    void undo();
+  };
+
+  const handleRedo = () => {
+    if (historyFuture.length === 0) {
+      pushToast("Rien à rétablir.", "info");
+      return;
+    }
+    void redo();
+  };
+
+  // Raccourcis clavier : Ctrl+Z / Ctrl+Shift+Z (ou Ctrl+Y).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      } else if ((key === "z" && e.shiftKey) || key === "y") {
+        e.preventDefault();
+        handleRedo();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const applyProperties = async (patch: ComponentPropertiesPatch) => {
     const data = useProjectStore.getState().layout;
     if (!data || !selected) return;
+    pushHistory();
     const next: LayoutData = {
       ...data,
       components: data.components.map((c) =>
@@ -577,6 +667,7 @@ export default function PcbLayoutPage() {
 
   const query = projectId ? `?project=${encodeURIComponent(projectId)}` : "";
   const layerNames = layout?.board.layer_names ?? [];
+  const gridCols = showStats ? "270px 1fr 300px" : "270px 1fr";
 
   return (
     <div className="page">
@@ -596,7 +687,7 @@ export default function PcbLayoutPage() {
         </div>
       ) : null}
 
-      <div className="editor-layout" style={{ gridTemplateColumns: "270px 1fr" }}>
+      <div className="editor-layout" style={{ gridTemplateColumns: gridCols }}>
         <aside className="side-panel">
           <div className="side-box panel">
             <h3 className="panel-title">Couches</h3>
@@ -666,9 +757,58 @@ export default function PcbLayoutPage() {
             <Button size="sm" data-testid="drc-run-btn" onClick={() => void handleDrc()} disabled={busyAction !== null}>
               {busyAction === "drc" ? "Analyse…" : "DRC"}
             </Button>
+            <Button
+              size="sm"
+              data-testid="autofix-btn"
+              onClick={() => void handleAutoFix()}
+              disabled={busyAction !== null}
+              title="Répare automatiquement largeurs, vias et marges de bord"
+            >
+              {busyAction === "autofix" ? "Réparation…" : "🩹 Auto-fix"}
+            </Button>
             <Link className="btn btn-secondary btn-sm" href={`/pages/schematic-editor${query}`}>
               ERC
             </Link>
+            <span className="toolbar-sep" />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowDoctor(true)}
+              title="Audit global noté du design (DRC, ERC, SI, thermique, DFM)"
+            >
+              🩺 Diagnostic
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowDFM(true)}
+              title="Coût de fabrication et rendement premier passage"
+            >
+              💰 DFM
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => setShowTimeMachine(true)}
+              title="Instantanés, diff et restauration"
+            >
+              🕰 Historique
+            </Button>
+            <Button
+              size="sm"
+              variant={showStats ? "secondary" : "ghost"}
+              onClick={() => setShowStats((v) => !v)}
+              title="Tableau de bord statistique"
+            >
+              📊 Stats
+            </Button>
+            <span className="toolbar-sep" />
+            <Button size="sm" variant="ghost" onClick={handleUndo} disabled={historyPast.length === 0} title="Annuler (Ctrl+Z)">
+              ↶ Annuler
+            </Button>
+            <Button size="sm" variant="ghost" onClick={handleRedo} disabled={historyFuture.length === 0} title="Rétablir (Ctrl+Maj+Z)">
+              ↷ Rétablir
+            </Button>
             <span className="toolbar-sep" />
             <Link className="btn btn-secondary btn-sm" href={`/pages/export${query}`}>
               Exporter
@@ -703,6 +843,9 @@ export default function PcbLayoutPage() {
             onPointerLeave={handlePointerUp}
           />
 
+          {/* Présence collaborative temps réel (curseurs distants). */}
+          <PresenceLayer />
+
           {!layout ? (
             <div className="hint-empty">
               Aucune donnée de layout. Créez un projet, importez un fichier ou lancez le placement IA.
@@ -718,7 +861,48 @@ export default function PcbLayoutPage() {
             {selected ? <span>Sélection : {selected.ref}</span> : <span className="muted">Cliquez sur un composant</span>}
           </div>
         </section>
+
+        {showStats && <StatsPanel onClose={() => setShowStats(false)} />}
       </div>
+
+      {autoFix ? (
+        <section className="erc-panel panel autofix-panel">
+          <div className="erc-header">
+            <h3>🩹 Auto-Healer DRC {autoFix.dry_run ? "(simulation)" : ""}</h3>
+            <div className="page-actions">
+              <span className="erc-summary">
+                {autoFix.violations_before} → {autoFix.violations_after} violation(s) en{" "}
+                {autoFix.duration_ms} ms
+              </span>
+              <Button size="sm" variant="ghost" onClick={() => setAutoFix(null)}>
+                Masquer
+              </Button>
+            </div>
+          </div>
+          <div className={`pass-banner ${autoFix.violations_after === 0 ? "ok" : autoFix.fixed > 0 ? "ok" : "fail"}`}>
+            {autoFix.violations_before === 0
+              ? "Aucune violation à réparer : la carte était déjà conforme."
+              : autoFix.violations_after === 0
+                ? `Réparation complète : ${autoFix.fixed} violation(s) corrigée(s).`
+                : `${autoFix.fixed} violation(s) réparée(s), ${autoFix.violations_after} restant(s) (hors réparabilité automatique).`}
+          </div>
+          {autoFix.fixes.length > 0 && (
+            <ul className="violation-list" style={{ marginTop: 10 }}>
+              {autoFix.fixes.map((f, i) => (
+                <li key={i} className="violation-item">
+                  <span className={`sev ${f.applied ? "sev-ok" : "sev-warning"}`}>
+                    {Math.round(f.confidence * 100)} %
+                  </span>
+                  <div>
+                    <strong>{f.action}</strong>
+                    <span> — {f.message}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       {drc ? (
         <section className="erc-panel panel">
@@ -768,6 +952,10 @@ export default function PcbLayoutPage() {
           />
         </Modal>
       ) : null}
+
+      {showDoctor ? <DesignDoctor onClose={() => setShowDoctor(false)} /> : null}
+      {showDFM ? <DFMOracle onClose={() => setShowDFM(false)} /> : null}
+      {showTimeMachine ? <TimeMachine onClose={() => setShowTimeMachine(false)} /> : null}
     </div>
   );
 }

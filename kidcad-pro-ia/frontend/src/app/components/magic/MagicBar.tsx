@@ -12,6 +12,34 @@ import type { MagicResult } from "@/lib/api/types";
 import { useProjectStore } from "@/lib/store/project-store";
 import { useUIStore } from "@/lib/store/ui-store";
 
+// --- Web Speech API (dictée du copilot, good-to-have) ------------------
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  start(): void;
+  stop(): void;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+};
+
+function createRecognition(): SpeechRecognitionLike | null {
+  if (typeof window === "undefined") return null;
+  const w = window as unknown as {
+    SpeechRecognition?: new () => SpeechRecognitionLike;
+    webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+  };
+  const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+  if (!Ctor) return null;
+  const rec = new Ctor();
+  rec.lang = "fr-FR";
+  rec.interimResults = false;
+  rec.continuous = false;
+  return rec;
+}
+
 const KIND_ICONS: Record<string, string> = {
   place_component: "🧩",
   move_component: "✥",
@@ -38,11 +66,19 @@ export function MagicBar() {
   const [utterance, setUtterance] = useState("");
   const [busy, setBusy] = useState(false);
   const [preview, setPreview] = useState<MagicResult | null>(null);
+  const [listening, setListening] = useState(false);
+  const [voiceSupported, setVoiceSupported] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const recRef = useRef<SpeechRecognitionLike | null>(null);
 
   const currentProject = useProjectStore((s) => s.currentProject);
   const refreshLayout = useProjectStore((s) => s.refreshLayout);
   const pushToast = useUIStore((s) => s.pushToast);
+
+  // Disponibilité de la dictée vocale (Chrome/Edge/Safari).
+  useEffect(() => {
+    setVoiceSupported(createRecognition() !== null);
+  }, []);
 
   // ⌘K / Ctrl+K : ouverture instantanée, Escape : fermeture.
   useEffect(() => {
@@ -152,6 +188,35 @@ export function MagicBar() {
     }
   }, [pushToast, requireProject]);
 
+  /** Dictée vocale : « place R1 près de U3 » à la voix, puis exécution. */
+  const toggleVoice = useCallback(() => {
+    if (listening) {
+      recRef.current?.stop();
+      return;
+    }
+    const rec = createRecognition();
+    if (!rec) {
+      pushToast("Dictée vocale non supportée par ce navigateur.", "error");
+      return;
+    }
+    recRef.current = rec;
+    rec.onresult = (e) => {
+      const transcript = e.results?.[0]?.[0]?.transcript ?? "";
+      if (transcript) {
+        setUtterance(transcript);
+        setPreview(null);
+        pushToast(`🎙️ « ${transcript} »`, "info");
+      }
+    };
+    rec.onerror = () => {
+      setListening(false);
+      pushToast("Dictée vocale interrompue.", "error");
+    };
+    rec.onend = () => setListening(false);
+    setListening(true);
+    rec.start();
+  }, [listening, pushToast]);
+
   return (
     <>
       <button
@@ -183,6 +248,17 @@ export function MagicBar() {
                 }}
                 disabled={busy}
               />
+              {voiceSupported && (
+                <button
+                  type="button"
+                  className={`magic-mic ${listening ? "listening" : ""}`}
+                  onClick={toggleVoice}
+                  aria-label={listening ? "Arrêter la dictée" : "Dicter une commande"}
+                  title={listening ? "Arrêter la dictée" : "Dicter une commande (fr-FR)"}
+                >
+                  🎙
+                </button>
+              )}
               <kbd className="magic-kbd">Esc</kbd>
             </div>
 

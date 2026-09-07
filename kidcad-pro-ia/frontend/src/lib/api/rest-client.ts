@@ -7,7 +7,10 @@ import type {
   AIStrategy,
   ArenaReport,
   ArenaStanding,
+  AutoFixResult,
+  DFMEstimate,
   DRCResult,
+  DoctorReport,
   ERCResult,
   ImportResult,
   JobStarted,
@@ -19,6 +22,10 @@ import type {
   ProjectPatch,
   RouteJobStart,
   SIResult,
+  SnapshotDiff,
+  SnapshotList,
+  SnapshotMeta,
+  StatsReport,
   ThermalResult,
 } from "./types";
 
@@ -192,6 +199,65 @@ export const api = {
 
   async arenaLeaderboard(): Promise<{ standings: ArenaStanding[] }> {
     const res = await http.get<{ standings: ArenaStanding[] }>("/arena/leaderboard");
+    return res.data;
+  },
+
+  // ------------------------------------------------------------
+  // Pack WOW (additif)
+  // ------------------------------------------------------------
+
+  /** DRC Auto-Healer — répare largeurs, vias et marges de bord. */
+  async drcAutoFix(projectId: string, dryRun = false): Promise<AutoFixResult> {
+    const res = await http.post<AutoFixResult>(`/projects/${id(projectId)}/drc/autofix`, {
+      dry_run: dryRun,
+    });
+    return res.data;
+  },
+
+  /** Design Doctor — audit global noté avec ordonnances. */
+  async doctor(projectId: string): Promise<DoctorReport> {
+    const res = await http.get<DoctorReport>(`/projects/${id(projectId)}/doctor`);
+    return res.data;
+  },
+
+  /** Oracle DFM — coût de fabrication + rendement premier passage. */
+  async dfmEstimate(projectId: string): Promise<DFMEstimate> {
+    const res = await http.post<DFMEstimate>(`/projects/${id(projectId)}/dfm`, {});
+    return res.data;
+  },
+
+  /** Time Machine — capture un instantané de la carte. */
+  async captureSnapshot(projectId: string, label = ""): Promise<SnapshotMeta> {
+    const res = await http.post<SnapshotMeta>(`/projects/${id(projectId)}/snapshots`, { label });
+    return res.data;
+  },
+
+  /** Time Machine — liste les instantanés (plus récents d'abord). */
+  async listSnapshots(projectId: string): Promise<SnapshotList> {
+    const res = await http.get<SnapshotList>(`/projects/${id(projectId)}/snapshots`);
+    return res.data;
+  },
+
+  /** Time Machine — diff structurel entre une capture et l'état courant. */
+  async snapshotDiff(projectId: string, snapshotId: string): Promise<SnapshotDiff> {
+    const res = await http.get<SnapshotDiff>(
+      `/projects/${id(projectId)}/snapshots/${encodeURIComponent(snapshotId)}/diff`,
+    );
+    return res.data;
+  },
+
+  /** Time Machine — restaure une capture (avec capture de sécurité). */
+  async restoreSnapshot(projectId: string, snapshotId: string): Promise<SnapshotMeta> {
+    const res = await http.post<SnapshotMeta>(
+      `/projects/${id(projectId)}/snapshots/${encodeURIComponent(snapshotId)}/restore`,
+      {},
+    );
+    return res.data;
+  },
+
+  /** Stats live — tableau de bord statistique du design. */
+  async stats(projectId: string): Promise<StatsReport> {
+    const res = await http.get<StatsReport>(`/projects/${id(projectId)}/stats`);
     return res.data;
   },
 };

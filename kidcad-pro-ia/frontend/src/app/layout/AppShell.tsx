@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { Header } from "./Header";
 import { Sidebar } from "./Sidebar";
 import { MagicBar } from "@/app/components/magic/MagicBar";
+import { ShortcutsOverlay } from "@/app/components/shortcuts/ShortcutsOverlay";
 import { useUIStore } from "@/lib/store/ui-store";
 
 function ToastStack() {
@@ -37,6 +38,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       </div>
       <ToastStack />
       <MagicBar />
+      <ShortcutsOverlay />
     </div>
   );
 }

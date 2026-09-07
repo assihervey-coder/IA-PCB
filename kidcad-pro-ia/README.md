@@ -166,8 +166,25 @@ Cinq fonctions d'intelligence embarquée, testées et déterministes :
 | 🧬 EvoPlace | ai-engine | placement génétique (HPWL + pénalité de recouvrement), streaming par génération |
 
 Côté frontend : palette **⌘K** (MagicBar) avec aperçu des actions, exécution
-sur Entrée et raccourcis 🌡️/📡/⚔️. Détails : [`docs/guides/guide-magic-pack.md`](docs/guides/guide-magic-pack.md)
+sur Entrée, dictée vocale 🎙 et raccourcis 🌡️/📡/⚔️. Détails : [`docs/guides/guide-magic-pack.md`](docs/guides/guide-magic-pack.md)
 et ADR-004.
+
+## Pack WOW 🔥
+
+Les fonctions qui surprennent les experts, plus les good/best to have —
+testées et documentées dans [`docs/guides/guide-pack-wow.md`](docs/guides/guide-pack-wow.md) :
+
+| Fonction | Endpoint | Description |
+|---|---|---|
+| 🩹 DRC Auto-Healer | `POST .../drc/autofix` | répare largeurs, vias et marges de bord avec confiance + delta DRC avant/après (dry-run possible) |
+| 🩺 Design Doctor | `GET .../doctor` | audit global noté /100, grade A+→D, radar 5 axes, ordonnances priorisées chiffrées |
+| 💰 Oracle DFM | `POST .../dfm` | prix unitaire à 3 volumes, surtaxes détaillées, rendement premier passage, conseils |
+| 🕰 Time Machine | `POST/GET .../snapshots` | instantanés, diff structurel lisible, restauration réversible |
+| 📊 Stats live | `GET .../stats` | occupation, cuivre par couche, top nets, classes |
+| 👥 Présence live | `/ws/v1/progress` | curseurs collaborateurs temps réel + avatars (extension additive du hub) |
+| ↶ Undo/Redo | frontend | Ctrl+Z / Ctrl+Maj+Z sur toutes les mutations historisées |
+| ⌨️ Raccourcis | frontend | aide-mémoire « ? » |
+| 🎙 Voix | frontend | dictée des commandes copilot (Web Speech API, fr-FR) |
 
 ## Documentation
 

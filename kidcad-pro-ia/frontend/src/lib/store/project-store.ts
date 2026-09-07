@@ -25,6 +25,8 @@ interface ProjectStoreState {
   erc: ERCResult | null;
   lastJob: JobStatus | null;
   percent: number;
+  historyPast: LayoutData[];
+  historyFuture: LayoutData[];
   loadProjects: () => Promise<void>;
   openProject: (id: string) => Promise<void>;
   refreshLayout: (projectId?: string) => Promise<void>;
@@ -34,8 +36,14 @@ interface ProjectStoreState {
   loadDemoData: () => Promise<void>;
   setDRC: (result: DRCResult | null) => void;
   setERC: (result: ERCResult | null) => void;
+  pushHistory: () => void;
+  undo: () => Promise<void>;
+  redo: () => Promise<void>;
   reset: () => void;
 }
+
+/** Profondeur maximale de la pile d'historique locale. */
+const HISTORY_LIMIT = 30;
 
 export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   projects: [],
@@ -48,6 +56,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   erc: null,
   lastJob: null,
   percent: 0,
+  historyPast: [],
+  historyFuture: [],
 
   loadProjects: async () => {
     set({ loading: true, error: null });
@@ -156,6 +166,55 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
   setDRC: (result) => set({ drc: result }),
   setERC: (result) => set({ erc: result }),
 
+  /** Capture l'état courant AVANT une mutation (appelé par les actions UI). */
+  pushHistory: () =>
+    set((st) => {
+      if (!st.layout) return st;
+      const past = [...st.historyPast, st.layout].slice(-HISTORY_LIMIT);
+      return { historyPast: past, historyFuture: [] };
+    }),
+
+  /** Annule la dernière mutation : restaure l'instantané précédent. */
+  undo: async () => {
+    const st = get();
+    const pid = st.currentProject?.id;
+    if (!pid || st.demoMode || st.historyPast.length === 0) return;
+    const previous = st.historyPast[st.historyPast.length - 1];
+    const current = st.layout;
+    if (!current) return;
+    set({
+      historyPast: st.historyPast.slice(0, -1),
+      historyFuture: [current, ...st.historyFuture].slice(0, HISTORY_LIMIT),
+      layout: previous,
+    });
+    try {
+      await api.putLayout(pid, previous);
+    } catch {
+      // Le backend reste la vérité : on tente un rafraîchissement au pire.
+      await get().refreshLayout();
+    }
+  },
+
+  /** Rétablit la dernière annulation. */
+  redo: async () => {
+    const st = get();
+    const pid = st.currentProject?.id;
+    if (!pid || st.demoMode || st.historyFuture.length === 0) return;
+    const next = st.historyFuture[0];
+    const current = st.layout;
+    if (!current) return;
+    set({
+      historyPast: [...st.historyPast, current].slice(-HISTORY_LIMIT),
+      historyFuture: st.historyFuture.slice(1),
+      layout: next,
+    });
+    try {
+      await api.putLayout(pid, next);
+    } catch {
+      await get().refreshLayout();
+    }
+  },
+
   reset: () =>
     set({
       projects: [],
@@ -168,6 +227,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       erc: null,
       lastJob: null,
       percent: 0,
+      historyPast: [],
+      historyFuture: [],
     }),
 }));
 

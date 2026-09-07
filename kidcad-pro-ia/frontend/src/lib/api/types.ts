@@ -404,3 +404,228 @@ export interface ArenaReport {
   log: string[];
   at: string;
 }
+
+// --------------------------------------------------------------
+// Pack WOW (endpoints additifs)
+// --------------------------------------------------------------
+
+// --- DRC Auto-Healer -------------------------------------------
+
+export type AutoFixAction =
+  | "widen_track"
+  | "enlarge_via"
+  | "nudge_edge"
+  | "ripup_reroute";
+
+export interface AutoFix {
+  code: string;
+  action: AutoFixAction;
+  message: string;
+  confidence: number;
+  applied: boolean;
+  target: string;
+}
+
+export interface AutoFixResult {
+  dry_run: boolean;
+  passed_before: boolean;
+  passed_after: boolean;
+  violations_before: number;
+  violations_after: number;
+  fixed: number;
+  remaining: string[];
+  fixes: AutoFix[];
+  board_changed: boolean;
+  duration_ms: number;
+}
+
+// --- Design Doctor ----------------------------------------------
+
+export interface DoctorAxis {
+  axe: string;
+  score: number;
+  max: number;
+}
+
+export interface DoctorPrescription {
+  priority: number;
+  axe: string;
+  title: string;
+  detail: string;
+  gain_pts: number;
+}
+
+export interface DoctorMetrics {
+  components: number;
+  nets: number;
+  unrouted_nets: number;
+  tracks: number;
+  total_length_mm: number;
+  vias: number;
+  utilization_pct: number;
+  max_temp_c: number;
+  si_score_pct: number;
+  drc_violations: number;
+  erc_violations: number;
+  min_track_mm: number;
+  min_drill_mm: number;
+}
+
+export type DoctorGrade = "A+" | "A" | "B" | "C" | "D";
+
+export interface DoctorReport {
+  score: number;
+  grade: DoctorGrade;
+  verdict: string;
+  axes: DoctorAxis[];
+  prescriptions: DoctorPrescription[];
+  metrics: DoctorMetrics;
+  duration_ms: number;
+}
+
+// --- Oracle DFM --------------------------------------------------
+
+export interface DFMUnitPrice {
+  qty: number;
+  label: string;
+  unit_eur: number;
+  total_eur: number;
+}
+
+export interface DFMRiskFlag {
+  code: string;
+  message: string;
+  impact_pct: number;
+}
+
+export interface DFMSurcharge {
+  label: string;
+  pct: number;
+}
+
+export interface DFMEstimate {
+  currency: string;
+  area_dm2: number;
+  layers: number;
+  via_count: number;
+  via_density_per_cm2: number;
+  min_track_mm: number;
+  min_drill_mm: number;
+  bom_lines: number;
+  components: number;
+  unit_prices: DFMUnitPrice[];
+  first_pass_yield_pct: number;
+  defect_risk: "faible" | "moyen" | "élevé";
+  risk_flags: DFMRiskFlag[];
+  surcharges: DFMSurcharge[];
+  advice: string[];
+  duration_ms: number;
+}
+
+// --- Time Machine -------------------------------------------------
+
+export interface SnapshotBoardMeta {
+  width_mm: number;
+  height_mm: number;
+  components: number;
+  tracks: number;
+  vias: number;
+  length_mm: number;
+  min_track_mm: number;
+}
+
+export interface SnapshotMeta {
+  id: string;
+  label: string;
+  at: string; // RFC 3339
+  board: SnapshotBoardMeta;
+  rule_count: number;
+}
+
+export interface SnapshotList {
+  snapshots: SnapshotMeta[];
+}
+
+export type DiffChange = "added" | "removed" | "moved" | "changed";
+
+export interface DiffEntry {
+  kind: "component" | "track" | "via" | "rule";
+  change: DiffChange;
+  target: string;
+  detail: string;
+}
+
+export interface SnapshotDiff {
+  snapshot_id: string;
+  snapshot_label: string;
+  entries: DiffEntry[];
+  summary: string;
+  changed: boolean;
+}
+
+// --- Stats live ---------------------------------------------------
+
+export interface StatsBoard {
+  width_mm: number;
+  height_mm: number;
+  area_cm2: number;
+  layer_count: number;
+}
+
+export interface StatsLayerUsage {
+  layer: number;
+  name: string;
+  tracks: number;
+  length_mm: number;
+  vias_touching: number;
+}
+
+export interface StatsNet {
+  name: string;
+  class: string;
+  tracks: number;
+  length_mm: number;
+  vias: number;
+  routed: boolean;
+  pad_count: number;
+}
+
+export interface StatsNetClass {
+  class: string;
+  nets: number;
+  length_mm: number;
+}
+
+export interface StatsReport {
+  board: StatsBoard;
+  components: number;
+  pads: number;
+  nets: number;
+  tracked_nets: number;
+  tracks: number;
+  vias: number;
+  total_length_mm: number;
+  utilization_pct: number;
+  layer_usage: StatsLayerUsage[];
+  top_nets: StatsNet[];
+  net_classes: StatsNetClass[];
+  duration_ms: number;
+}
+
+// --- Présence collaborative (WebSocket) ----------------------------
+
+export type PresenceEvent = "join" | "move" | "leave";
+
+export interface PresenceCursor {
+  x: number;
+  y: number;
+}
+
+export interface PresenceMessage {
+  type: "presence";
+  event: PresenceEvent;
+  project_id: string;
+  user: string;
+  cursor: PresenceCursor;
+  tool: string;
+}
