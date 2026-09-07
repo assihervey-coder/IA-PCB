@@ -154,3 +154,21 @@ Stage Summary:
 - Livrés : download/yahriacad-guide-demarrage.pdf (12 p., 219 Ko, vectoriel) + yahriacad-guide-demarrage.html (source autonome, polices embarquées) + fonts/ (assets)
 - Décisions : style tech sombre famille cuivre unique (~35°), drapeaux cover_validate hors couverture ignorés (outil cover-only, faux positifs documentés), emojis UI remplacés par SVG vectoriels
 - Rappel sécurité réitéré dans le guide (PAT GitHub à révoquer)
+
+---
+Task ID: 8
+Agent: Super Z (main)
+Task: Vérification en conditions réelles — « l'app est-elle réellement fonctionnelle ? »
+
+Work Log:
+- go build ./... OK (toolchain /home/z/toolchain/go/bin, go 1.27.1) ; go test -race ./... : tous les paquets OK
+- Scripts persistés : scripts/smoke_functional.sh (parcours API complet, une session bash — piège sandbox process détachés respecté) + scripts/smoke_frontend.sh (next start prod)
+- Moteur IA démarré (ai-engine/cmd/ai-server/main.py, gRPC 50051, torch CPU, modèle chargé) puis backend (JWT admin:admin activé)
+- Parcours réel 15/15 : healthz ai_engine=ok + ai_model_loaded=true → login JWT → création projet → demo/nightmare (5 fautes, 5 composants, 6 nets) → placement synchrone 5 composants → routage A* job state=done 6/6 nets 36ms → layout tracks=12 vias=6 → DRC 6 règles (violations réelles détectées) → export Gerber zip 7 fichiers → export ODB++ tgz 8 fichiers → stats → /metrics 193 lignes yahriacad_* → 401 sans jeton
+- Frontend prod build : 6/6 pages 200 (/, /pages/login, /pages/pcb-layout, /pages/project-manager, /pages/schematic-editor, /pages/export), titre YahriaCad
+- Pièges script : endpoints place SYNCHRONE (renvoie la carte, pas de job_id) ; champ job = state (pas status) ; cmd build = backend/cmd/yahriacad-server ; routes frontend réelles = pcb-layout/project-manager/schematic-editor/export
+- Sans moteur IA : place/route renvoient proprement 503 ai_unreachable (dégradation gracieuse confirmée)
+
+Stage Summary:
+- VERDICT : app réellement fonctionnelle de bout en bout (backend + IA + frontend), preuve live 15/15 + 6/6
+- Limites documentées : moteur IA à lancer séparément (make run-ai) ; stockage mémoire par défaut (YAHRIACAD_DB_URL pour persister) ; RL nécessite checkpoint entraîné ; TLS via reverse proxy
