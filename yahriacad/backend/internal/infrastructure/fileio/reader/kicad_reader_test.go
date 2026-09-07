@@ -1,10 +1,10 @@
 package reader
 
 import (
-        "strings"
-        "testing"
+	"strings"
+	"testing"
 
-        schematicapp "github.com/assihervey-coder/IA-PCB/backend/internal/application/schematic"
+	schematicapp "github.com/assihervey-coder/IA-PCB/backend/internal/application/schematic"
 )
 
 // kicad10Fixture : extrait minimal au format KiCad 10 (version 20260206) —
@@ -85,75 +85,75 @@ const kicad9Fixture = `(kicad_pcb
 )`
 
 func readFixture(t *testing.T, src string) schematicapp.ImportResult {
-        t.Helper()
-        res, err := readKiCadPCB([]byte(src), "test.kicad_pcb")
-        if err != nil {
-                t.Fatalf("lecture : %v", err)
-        }
-        return res
+	t.Helper()
+	res, err := readKiCadPCB([]byte(src), "test.kicad_pcb")
+	if err != nil {
+		t.Fatalf("lecture : %v", err)
+	}
+	return res
 }
 
 func TestKiCad10NameOnlyNets(t *testing.T) {
-        res := readFixture(t, kicad10Fixture)
+	res := readFixture(t, kicad10Fixture)
 
-        if got := res.Schematic.NetCount(); got != 2 {
-                t.Fatalf("nets attendus 2, obtenus %d", got)
-        }
-        gnd, ok := res.Schematic.NetByName("GND")
-        if !ok {
-                t.Fatal("net GND introuvable")
-        }
-        if len(gnd.Connections) != 1 || gnd.Connections[0].ComponentRef != "R1" ||
-                gnd.Connections[0].PinNumber != "2" {
-                t.Fatalf("connexions GND inattendues : %+v", gnd.Connections)
-        }
-        if _, ok := res.Schematic.NetByName("VCC"); !ok {
-                t.Fatal("net VCC introuvable")
-        }
+	if got := res.Schematic.NetCount(); got != 2 {
+		t.Fatalf("nets attendus 2, obtenus %d", got)
+	}
+	gnd, ok := res.Schematic.NetByName("GND")
+	if !ok {
+		t.Fatal("net GND introuvable")
+	}
+	if len(gnd.Connections) != 1 || gnd.Connections[0].ComponentRef != "R1" ||
+		gnd.Connections[0].PinNumber != "2" {
+		t.Fatalf("connexions GND inattendues : %+v", gnd.Connections)
+	}
+	if _, ok := res.Schematic.NetByName("VCC"); !ok {
+		t.Fatal("net VCC introuvable")
+	}
 
-        comp := res.Board.Components[0]
-        if comp.Ref != "R1" {
-                t.Fatalf("référence composant : %s", comp.Ref)
-        }
-        if comp.Footprint.Pads[1].Net != "GND" ||
-                comp.Footprint.Pads[0].Net != "VCC" {
-                t.Fatalf("nets des pastilles : %+v", comp.Footprint.Pads)
-        }
-        if len(res.Board.Tracks) != 1 || res.Board.Tracks[0].Net != "GND" {
-                t.Fatalf("piste : %+v", res.Board.Tracks)
-        }
+	comp := res.Board.Components[0]
+	if comp.Ref != "R1" {
+		t.Fatalf("référence composant : %s", comp.Ref)
+	}
+	if comp.Footprint.Pads[1].Net != "GND" ||
+		comp.Footprint.Pads[0].Net != "VCC" {
+		t.Fatalf("nets des pastilles : %+v", comp.Footprint.Pads)
+	}
+	if len(res.Board.Tracks) != 1 || res.Board.Tracks[0].Net != "GND" {
+		t.Fatalf("piste : %+v", res.Board.Tracks)
+	}
 }
 
 func TestKiCad9NumberedNets(t *testing.T) {
-        res := readFixture(t, kicad9Fixture)
+	res := readFixture(t, kicad9Fixture)
 
-        if got := res.Schematic.NetCount(); got != 2 {
-                t.Fatalf("nets attendus 2, obtenus %d", got)
-        }
-        if _, ok := res.Schematic.NetByName("GND"); !ok {
-                t.Fatal("net GND introuvable (format numéroté cassé)")
-        }
-        comp := res.Board.Components[0]
-        if comp.Footprint.Pads[1].Net != "GND" ||
-                comp.Footprint.Pads[0].Net != "VCC" {
-                t.Fatalf("nets des pastilles : %+v", comp.Footprint.Pads)
-        }
-        if len(res.Board.Tracks) != 1 || res.Board.Tracks[0].Net != "GND" {
-                t.Fatalf("piste : %+v", res.Board.Tracks)
-        }
+	if got := res.Schematic.NetCount(); got != 2 {
+		t.Fatalf("nets attendus 2, obtenus %d", got)
+	}
+	if _, ok := res.Schematic.NetByName("GND"); !ok {
+		t.Fatal("net GND introuvable (format numéroté cassé)")
+	}
+	comp := res.Board.Components[0]
+	if comp.Footprint.Pads[1].Net != "GND" ||
+		comp.Footprint.Pads[0].Net != "VCC" {
+		t.Fatalf("nets des pastilles : %+v", comp.Footprint.Pads)
+	}
+	if len(res.Board.Tracks) != 1 || res.Board.Tracks[0].Net != "GND" {
+		t.Fatalf("piste : %+v", res.Board.Tracks)
+	}
 }
 
 func TestKiCad10SyntheticNumbersAreStable(t *testing.T) {
-        // Deux nets homonymes rencontrés dans des ordres différents doivent
-        // partager le même numéro synthétique (unicité par nom).
-        res := readFixture(t, strings.ReplaceAll(kicad10Fixture,
-                `(start 10 10.5)`, `(start 11 10.5)`))
-        if got := res.Schematic.NetCount(); got != 2 {
-                t.Fatalf("nets attendus 2, obtenus %d", got)
-        }
-        for _, name := range []string{"GND", "VCC"} {
-                if _, ok := res.Schematic.NetByName(name); !ok {
-                        t.Fatalf("net %s introuvable après re-parse", name)
-                }
-        }
+	// Deux nets homonymes rencontrés dans des ordres différents doivent
+	// partager le même numéro synthétique (unicité par nom).
+	res := readFixture(t, strings.ReplaceAll(kicad10Fixture,
+		`(start 10 10.5)`, `(start 11 10.5)`))
+	if got := res.Schematic.NetCount(); got != 2 {
+		t.Fatalf("nets attendus 2, obtenus %d", got)
+	}
+	for _, name := range []string{"GND", "VCC"} {
+		if _, ok := res.Schematic.NetByName(name); !ok {
+			t.Fatalf("net %s introuvable après re-parse", name)
+		}
+	}
 }
