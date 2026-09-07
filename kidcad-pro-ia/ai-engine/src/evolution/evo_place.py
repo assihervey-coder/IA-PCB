@@ -22,14 +22,14 @@ from __future__ import annotations
 import argparse
 import math
 import random
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional, Sequence, Tuple
 
 # --------------------------------------------------------------------------- #
 # Modèle de problème
 # --------------------------------------------------------------------------- #
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 
 @dataclass
@@ -50,16 +50,16 @@ class EvoNet:
     """Un net reliant des références (pour le calcul HPWL)."""
 
     name: str
-    refs: List[str]
+    refs: list[str]
 
 
 @dataclass
 class Placement:
     """Un individu : ref -> (x, y) sur la carte."""
 
-    coords: Dict[str, Point] = field(default_factory=dict)
+    coords: dict[str, Point] = field(default_factory=dict)
 
-    def copy(self) -> "Placement":
+    def copy(self) -> Placement:
         return Placement(dict(self.coords))
 
 
@@ -133,7 +133,7 @@ def fitness(
 # --------------------------------------------------------------------------- #
 
 
-def _grid_shape(n: int, board_w: float, board_h: float) -> Tuple[int, int]:
+def _grid_shape(n: int, board_w: float, board_h: float) -> tuple[int, int]:
     """Grille quasi-carrée adaptée à l'emprise de la carte."""
     cols = max(1, int(math.sqrt(n * board_w / max(board_h, 1e-9))))
     rows = max(1, math.ceil(n / cols))
@@ -237,9 +237,9 @@ def evolve(
     nets: Sequence[EvoNet],
     board_w: float,
     board_h: float,
-    cfg: Optional[EvoConfig] = None,
-    on_generation: Optional[GenerationCallback] = None,
-) -> Tuple[Placement, float, List[GenerationStat]]:
+    cfg: EvoConfig | None = None,
+    on_generation: GenerationCallback | None = None,
+) -> tuple[Placement, float, list[GenerationStat]]:
     """Fait évoluer un placement et renvoie (meilleur, fitness, historique)."""
     cfg = cfg or EvoConfig()
     rng = random.Random(cfg.seed)
@@ -249,11 +249,11 @@ def evolve(
         for _ in range(cfg.population_size)
     ]
 
-    def score_all(pop: Sequence[Placement]) -> List[float]:
+    def score_all(pop: Sequence[Placement]) -> list[float]:
         return [fitness(p, components, nets, cfg) for p in pop]
 
     scores = score_all(population)
-    history: List[GenerationStat] = []
+    history: list[GenerationStat] = []
     best_idx = min(range(len(population)), key=lambda i: scores[i])
     best, best_score = population[best_idx].copy(), scores[best_idx]
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict, Iterable, List, Optional, Sequence
+from collections.abc import Iterable, Sequence
 
 PAD, UNK, BOS, EOS = "<pad>", "<unk>", "<bos>", "<eos>"
 SPECIAL_TOKENS: Sequence[str] = (PAD, UNK, BOS, EOS)
@@ -25,8 +25,8 @@ class NetTokenizer:
 
     def __init__(self, max_len: int = 16) -> None:
         self.max_len = int(max_len)
-        self.token_to_id: Dict[str, int] = {}
-        self.id_to_token: Dict[int, str] = {}
+        self.token_to_id: dict[str, int] = {}
+        self.id_to_token: dict[int, str] = {}
         self._reset_vocab()
 
     def _reset_vocab(self) -> None:
@@ -36,7 +36,7 @@ class NetTokenizer:
 
     # ------------------------------------------------------------------ build
 
-    def build(self, corpus: Iterable[str]) -> "NetTokenizer":
+    def build(self, corpus: Iterable[str]) -> NetTokenizer:
         """Add every token of ``corpus`` to the vocabulary (idempotent)."""
         for name in corpus:
             for token in self._tokenize(name):
@@ -44,7 +44,7 @@ class NetTokenizer:
         return self
 
     @staticmethod
-    def _tokenize(name: str) -> List[str]:
+    def _tokenize(name: str) -> list[str]:
         """Split a net name into character-level tokens (upper-case)."""
         return list(str(name).upper())
 
@@ -56,7 +56,7 @@ class NetTokenizer:
 
     # ---------------------------------------------------------------- encode
 
-    def encode(self, name: str, add_specials: bool = True) -> List[int]:
+    def encode(self, name: str, add_specials: bool = True) -> list[int]:
         """Encode a net name into a list of ids.
 
         The sequence is truncated to ``max_len``; unknown characters map to
@@ -110,7 +110,7 @@ class NetTokenizer:
     def load(self, path: str) -> bool:
         """Load a JSON vocabulary; returns True on success."""
         try:
-            with open(path, "r", encoding="utf-8") as handle:
+            with open(path, encoding="utf-8") as handle:
                 payload = json.load(handle)
             vocab = payload.get("vocab", payload) if isinstance(payload, dict) else {}
             self.max_len = int(payload.get("max_len", self.max_len)) if isinstance(payload, dict) else self.max_len

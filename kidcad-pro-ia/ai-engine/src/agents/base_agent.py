@@ -9,7 +9,7 @@ itself only needs numpy.
 from __future__ import annotations
 
 import abc
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -32,7 +32,7 @@ class BaseAgent(abc.ABC):
         """
 
     @abc.abstractmethod
-    def update(self, batch: Dict[str, Any]) -> Dict[str, float]:
+    def update(self, batch: dict[str, Any]) -> dict[str, float]:
         """Run one learning update on ``batch`` and return loss statistics."""
 
     @abc.abstractmethod
@@ -53,12 +53,12 @@ class RolloutBuffer:
     """
 
     def __init__(self) -> None:
-        self.obs: List[Any] = []
-        self.actions: List[int] = []
-        self.logprobs: List[float] = []
-        self.rewards: List[float] = []
-        self.dones: List[float] = []
-        self.values: List[float] = []
+        self.obs: list[Any] = []
+        self.actions: list[int] = []
+        self.logprobs: list[float] = []
+        self.rewards: list[float] = []
+        self.dones: list[float] = []
+        self.values: list[float] = []
 
     def add(
         self,
@@ -98,7 +98,7 @@ class RolloutBuffer:
         gamma: float,
         gae_lambda: float,
         last_value: float = 0.0,
-    ) -> Tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray]:
         """Compute discounted returns and GAE advantages.
 
         Args:

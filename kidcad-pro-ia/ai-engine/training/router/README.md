@@ -34,6 +34,17 @@ print(history["steps"][-1], history["episode_reward"][-1])
 EOF
 ```
 
+## Script prêt à l'emploi
+
+Un script CLI évite d'écrire le snippet à la main :
+
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+python3 ai-engine/training/router/train.py --steps 200000 --seed 0
+# options : --out training/router/model_v1.pt --save-every 50000 (checkpoints intermédiaires)
+# équivalent Makefile : make train-router STEPS=200000
+```
+
 ## Ou arrivent les checkpoints
 
 - `training/router/model_v1.pt` : checkpoint PPO (charge par `src/service.py`

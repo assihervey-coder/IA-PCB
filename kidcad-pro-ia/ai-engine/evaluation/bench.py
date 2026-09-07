@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.environment.action_space import ActionSpace  # noqa: E402
 from src.environment.pcb_env import EnvConfig, PCBRouteEnv  # noqa: E402
+
 from evaluation.metrics import summarize  # noqa: E402
 
 BOARD_W_MM = 40.0

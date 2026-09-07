@@ -22,8 +22,8 @@ import os
 import random
 import sys
 import time
+from collections.abc import Iterable, Sequence
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 # --------------------------------------------------------------------------
 # sys.path bootstrap: generated gRPC stubs live in shared/gen/python, sibling
@@ -69,9 +69,9 @@ def _board_to_dict(board: pb.BoardSpec) -> dict:
     }
 
 
-def _nets_to_dicts(nets: Iterable[pb.NetSpec]) -> List[dict]:
+def _nets_to_dicts(nets: Iterable[pb.NetSpec]) -> list[dict]:
     """Convert ``NetSpec`` protos into env net dicts (absolute pad positions)."""
-    out: List[dict] = []
+    out: list[dict] = []
     for net in nets:
         pads = [
             {
@@ -96,9 +96,9 @@ def _nets_to_dicts(nets: Iterable[pb.NetSpec]) -> List[dict]:
     return out
 
 
-def _components_from_proto(components: Iterable[pb.ComponentSpec]) -> List[dict]:
+def _components_from_proto(components: Iterable[pb.ComponentSpec]) -> list[dict]:
     """Convert ``ComponentSpec`` protos into plain dicts."""
-    out: List[dict] = []
+    out: list[dict] = []
     for comp in components:
         bbox = comp.bbox_mm
         out.append(
@@ -207,9 +207,9 @@ def _route_result_to_dict(result: pb.RouteNetResult) -> dict:
     }
 
 
-def _flat_segments(routes: Sequence[dict]) -> List[Tuple[str, int, float, float, float, float]]:
+def _flat_segments(routes: Sequence[dict]) -> list[tuple[str, int, float, float, float, float]]:
     """Flatten route dicts into ``(net, layer, x1, y1, x2, y2)`` tuples."""
-    out: List[Tuple[str, int, float, float, float, float]] = []
+    out: list[tuple[str, int, float, float, float, float]] = []
     for route in routes:
         net = str(route.get("net", "") or "")
         for seg in route.get("segments") or []:
@@ -319,7 +319,7 @@ def _rect_overlap_area(
 
 def _clamp_position(
     x: float, y: float, half_w: float, half_h: float, width: float, height: float
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """Clamp a component center so its bbox stays inside the board."""
     margin = _BORDER_MARGIN_MM
     min_x, max_x = margin + half_w, width - margin - half_w
@@ -332,13 +332,13 @@ def _clamp_position(
 
 
 def _simulated_annealing_placement(
-    components: List[dict],
+    components: list[dict],
     board: dict,
     rng: random.Random,
     iterations: int = 1500,
     time_budget_s: float = 2.0,
     overlap_weight: float = 5.0,
-) -> Tuple[List[Tuple[float, float]], float, float]:
+) -> tuple[list[tuple[float, float]], float, float]:
     """Deterministic simulated annealing placement.
 
     Note: the v1 ``PlacementRequest`` proto carries no netlist, so the
@@ -364,7 +364,7 @@ def _simulated_annealing_placement(
     if n == 0:
         return [], 0.0, 0.0
 
-    halves: List[Tuple[float, float]] = []
+    halves: list[tuple[float, float]] = []
     for comp in components:
         bbox = comp.get("bbox") or {}
         hw = max((float(bbox.get("max_x", 0.0)) - float(bbox.get("min_x", 0.0))) / 2.0, 0.0)
@@ -375,7 +375,7 @@ def _simulated_annealing_placement(
         halves.append((hw, hh))
 
     fixed = [bool(c.get("fixed", False)) for c in components]
-    positions: List[List[float]] = []
+    positions: list[list[float]] = []
     for comp in components:
         pos = comp.get("position") or {}
         positions.append([float(pos.get("x", 0.0) or 0.0), float(pos.get("y", 0.0) or 0.0)])
@@ -488,9 +488,9 @@ def _detect_device(preference: str = "auto") -> str:
     return "cpu"
 
 
-def _load_yaml_config(config_path: Optional[str]) -> dict:
+def _load_yaml_config(config_path: str | None) -> dict:
     """Load the training/router YAML config (defensively)."""
-    candidates: List[str] = []
+    candidates: list[str] = []
     if config_path:
         candidates.append(config_path)
     candidates.append(str(AI_ENGINE_ROOT / "training" / "router" / "config.yaml"))
@@ -499,7 +499,7 @@ def _load_yaml_config(config_path: Optional[str]) -> dict:
             try:
                 import yaml
 
-                with open(path, "r", encoding="utf-8") as handle:
+                with open(path, encoding="utf-8") as handle:
                     data = yaml.safe_load(handle) or {}
                 if isinstance(data, dict):
                     return data
@@ -511,7 +511,7 @@ def _load_yaml_config(config_path: Optional[str]) -> dict:
 class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
     """Implementation of ``kidcad.pcb.v1.AIRouterService``."""
 
-    def __init__(self, config_path: Optional[str] = None, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(self, config_path: str | None = None, logger: logging.Logger | None = None) -> None:
         """Args:
         config_path: optional YAML config override (defaults to
             ``training/router/config.yaml`` inside the ai-engine root).
@@ -548,7 +548,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
 
     # ------------------------------------------------------------- internals
 
-    def _resolve_model_path(self, model_path: str) -> Optional[str]:
+    def _resolve_model_path(self, model_path: str) -> str | None:
         """Resolve the checkpoint path (absolute or ai-engine relative)."""
         if not model_path:
             return None
@@ -575,7 +575,6 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
 
             router_cfg = {}
             try:
-                import yaml
                 config = _load_yaml_config(None)
                 router_cfg = config.get("router") or {}
             except Exception:
@@ -599,7 +598,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         """EnvConfig used for every routing request."""
         return EnvConfig(clearance_cells=self._clearance_cells, seed=0)
 
-    def _rl_route(self, env: PCBRouteEnv, net_index: int) -> Optional[dict]:
+    def _rl_route(self, env: PCBRouteEnv, net_index: int) -> dict | None:
         """Greedy RL rollout for one net; ``None`` when it fails to connect."""
         agent = self._agent
         if agent is None:
@@ -664,7 +663,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
                 score=round(cost, 4),
                 strategy="rl" if (str(request.strategy or "") == "rl" and self._agent is not None) else "heuristic",
             )
-            for comp, (x, y) in zip(components, positions):
+            for comp, (x, y) in zip(components, positions, strict=False):
                 moved = dict(comp)
                 moved["position"] = {"x": x, "y": y}
                 result.placed.append(_component_to_proto(moved))
@@ -711,8 +710,8 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             )
             strategy = "rl" if use_rl else "astar"
             total = len(selected)
-            results: List[pb.RouteNetResult] = []
-            result_dicts: List[dict] = []
+            results: list[pb.RouteNetResult] = []
+            result_dicts: list[dict] = []
 
             for k, net in enumerate(selected):
                 if not context.is_active():

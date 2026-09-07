@@ -18,7 +18,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
-
 from src.environment.action_space import ActionSpace  # noqa: E402
 from src.environment.pcb_env import EnvConfig, PCBRouteEnv  # noqa: E402
 

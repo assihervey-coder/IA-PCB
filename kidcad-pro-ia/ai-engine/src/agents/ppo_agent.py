@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -113,10 +113,10 @@ class PPOAgent(BaseAgent):
 
     def __init__(
         self,
-        config: Optional[PPOConfig] = None,
+        config: PPOConfig | None = None,
         in_channels: int = 5,
         n_actions: int = 12,
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> None:
         """Build the agent (first torch import happens here).
 
@@ -164,7 +164,7 @@ class PPOAgent(BaseAgent):
             dist = torch.distributions.Categorical(logits=logits)
             return int(dist.sample().item())
 
-    def act_with_info(self, obs: np.ndarray) -> Tuple[int, float, float]:
+    def act_with_info(self, obs: np.ndarray) -> tuple[int, float, float]:
         """Sample an action and return ``(action, logprob, value)``."""
         torch = _torch()
         with torch.no_grad():
@@ -195,7 +195,7 @@ class PPOAgent(BaseAgent):
 
     # --------------------------------------------------------------- training
 
-    def update(self, batch: Dict[str, Any]) -> Dict[str, float]:
+    def update(self, batch: dict[str, Any]) -> dict[str, float]:
         """One PPO update over ``batch`` (clipped objective + GAE targets).
 
         Args:
@@ -314,7 +314,7 @@ class PPOTrainer:
         env_factory,
         agent: PPOAgent,
         total_steps: int = 100_000,
-        rollout_len: Optional[int] = None,
+        rollout_len: int | None = None,
         log=print,
     ) -> None:
         """Args:
@@ -331,7 +331,7 @@ class PPOTrainer:
         self.log = log if log is not None else print
         self.log_interval = 5
         self.rng = random.Random(agent.cfg.seed)
-        self.history: Dict[str, list] = {
+        self.history: dict[str, list] = {
             "steps": [],
             "episode_reward": [],
             "episode_length": [],
@@ -340,7 +340,7 @@ class PPOTrainer:
             "entropy": [],
         }
 
-    def collect_rollout(self, env) -> Tuple[RolloutBuffer, float, int, float]:
+    def collect_rollout(self, env) -> tuple[RolloutBuffer, float, int, float]:
         """Collect one rollout.
 
         Returns:
@@ -368,7 +368,7 @@ class PPOTrainer:
         mean_reward = float(np.mean(completed_rewards)) if completed_rewards else 0.0
         return buffer, mean_reward, episodes, last_value
 
-    def train(self) -> Dict[str, list]:
+    def train(self) -> dict[str, list]:
         """Run the full loop; returns the populated ``history`` dict."""
         steps_done = 0
         rollout_id = 0

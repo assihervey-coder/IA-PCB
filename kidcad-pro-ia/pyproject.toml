@@ -32,3 +32,9 @@ target-version = "py310"
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B"]
 ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Les noms PascalCase des RPC sont imposés par l'interface gRPC générée.
+"ai-engine/src/service.py" = ["N802"]
+# Convention PyTorch universelle : `import torch.nn.functional as F`.
+"ai-engine/src/models/*" = ["N806", "N812"]

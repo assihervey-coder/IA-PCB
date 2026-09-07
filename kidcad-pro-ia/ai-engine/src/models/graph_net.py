@@ -17,12 +17,10 @@ Node features (6, all normalized to [0, 1] when possible):
 
 from __future__ import annotations
 
-from typing import List, Optional, Sequence, Tuple
-
 import numpy as np
 
 
-def build_graph(nets: List[dict]) -> Tuple[np.ndarray, np.ndarray]:
+def build_graph(nets: list[dict]) -> tuple[np.ndarray, np.ndarray]:
     """Build the pad-level graph of a netlist (numpy only).
 
     Args:
@@ -34,15 +32,15 @@ def build_graph(nets: List[dict]) -> Tuple[np.ndarray, np.ndarray]:
         shape ``(N, 6)`` and ``edge_index`` an int64 array of shape ``(2, E)``
         (each undirected edge stored in both directions).
     """
-    xs: List[float] = []
-    ys: List[float] = []
-    layers: List[int] = []
-    widths: List[float] = []
-    heights: List[float] = []
-    net_of_node: List[List[int]] = []  # node indices per net
+    xs: list[float] = []
+    ys: list[float] = []
+    layers: list[int] = []
+    widths: list[float] = []
+    heights: list[float] = []
+    net_of_node: list[list[int]] = []  # node indices per net
 
     for net in nets or []:
-        node_ids: List[int] = []
+        node_ids: list[int] = []
         for pad in net.get("pads") or []:
             pos = pad.get("position") or {}
             xs.append(float(pos.get("x", 0.0) or 0.0))
@@ -80,8 +78,8 @@ def build_graph(nets: List[dict]) -> Tuple[np.ndarray, np.ndarray]:
         axis=1,
     ).astype(np.float32)
 
-    src: List[int] = []
-    dst: List[int] = []
+    src: list[int] = []
+    dst: list[int] = []
     for node_ids in net_of_node:
         for i in range(len(node_ids)):
             for j in range(i + 1, len(node_ids)):
@@ -97,7 +95,7 @@ def build_graph(nets: List[dict]) -> Tuple[np.ndarray, np.ndarray]:
 
 
 # Lazily-built torch classes (see module __getattr__).
-_TORCH_CLASSES: Optional[dict] = None
+_TORCH_CLASSES: dict | None = None
 
 
 def _torch_classes() -> dict:
@@ -201,5 +199,5 @@ def __getattr__(name: str):
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-def __dir__() -> List[str]:  # pragma: no cover - introspection helper
+def __dir__() -> list[str]:  # pragma: no cover - introspection helper
     return sorted(set(globals()) | {"GraphConv", "GraphNet"})

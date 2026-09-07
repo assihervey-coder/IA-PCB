@@ -11,9 +11,9 @@ All functions accept "routes": a list of route dicts as produced by
 from __future__ import annotations
 
 import math
-from typing import List, Sequence, Tuple
+from collections.abc import Sequence
 
-Point = Tuple[float, float]
+Point = tuple[float, float]
 
 _EPS = 1e-9
 
@@ -106,9 +106,9 @@ def segment_distance(seg_a1: Point, seg_a2: Point, seg_b1: Point, seg_b2: Point)
     )
 
 
-def _flat_segments(routes: Sequence[dict]) -> List[Tuple[str, int, Point, Point]]:
+def _flat_segments(routes: Sequence[dict]) -> list[tuple[str, int, Point, Point]]:
     """Flatten routes into ``(net, layer, a, b)`` tuples."""
-    out: List[Tuple[str, int, Point, Point]] = []
+    out: list[tuple[str, int, Point, Point]] = []
     for route in routes or []:
         net = str(route.get("net", "") or "")
         for seg in route.get("segments") or []:
@@ -125,9 +125,9 @@ def _flat_segments(routes: Sequence[dict]) -> List[Tuple[str, int, Point, Point]
     return out
 
 
-def _flat_vias(routes: Sequence[dict]) -> List[Tuple[str, Point, set]]:
+def _flat_vias(routes: Sequence[dict]) -> list[tuple[str, Point, set]]:
     """Flatten routes into ``(net, (x, y), {layers})`` via tuples."""
-    out: List[Tuple[str, Point, set]] = []
+    out: list[tuple[str, Point, set]] = []
     for route in routes or []:
         net = str(route.get("net", "") or "")
         for via in route.get("vias") or []:

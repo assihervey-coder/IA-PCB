@@ -17,20 +17,19 @@ Layer 0 is F.Cu, ``layer_count - 1`` is B.Cu.
 from __future__ import annotations
 
 import random
-from typing import List, Tuple
 
 # Ordered list of in-layer moves (dx, dy): up, right, down, left.
-MOVES: List[Tuple[int, int]] = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+MOVES: list[tuple[int, int]] = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 
 # Ordered layer modes: stay, change layer +1 (up), change layer -1 (down).
-LAYER_MODES: List[int] = [0, 1, -1]
+LAYER_MODES: list[int] = [0, 1, -1]
 
 N_MOVES: int = len(MOVES)
 N_MODES: int = len(LAYER_MODES)
 N_ACTIONS: int = N_MOVES * N_MODES
 
-MOVE_NAMES: Tuple[str, ...] = ("up", "right", "down", "left")
-MODE_NAMES: Tuple[str, ...] = ("stay", "via-up", "via-down")
+MOVE_NAMES: tuple[str, ...] = ("up", "right", "down", "left")
+MODE_NAMES: tuple[str, ...] = ("stay", "via-up", "via-down")
 
 
 class ActionSpace:
@@ -50,7 +49,7 @@ class ActionSpace:
 
     n: int = N_ACTIONS
 
-    def decode(self, action: int) -> Tuple[int, int, int]:
+    def decode(self, action: int) -> tuple[int, int, int]:
         """Return ``(dx, dy, dlayer)`` for a valid action index.
 
         Raises:

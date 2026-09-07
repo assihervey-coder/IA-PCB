@@ -18,7 +18,6 @@ import logging
 import os
 import signal
 import sys
-import time
 from concurrent import futures
 from pathlib import Path
 
@@ -34,7 +33,6 @@ for _path in (str(SHARED_GEN_DIR), str(AI_ENGINE_ROOT)):
 
 import grpc  # noqa: E402
 import pcb_pb2_grpc as pb_grpc  # noqa: E402
-
 from src.service import AIRouterServicer  # noqa: E402
 
 DEFAULT_PORT = int(os.environ.get("KIDCAD_AI_PORT", "50051"))

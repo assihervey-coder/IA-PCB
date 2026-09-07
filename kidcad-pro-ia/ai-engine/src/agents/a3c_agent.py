@@ -11,8 +11,9 @@ from __future__ import annotations
 import random
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -118,10 +119,10 @@ class A3CAgent(BaseAgent):
 
     def __init__(
         self,
-        config: Optional[A3CConfig] = None,
+        config: A3CConfig | None = None,
         in_channels=5,
         n_actions: int = 12,
-        device: Optional[str] = None,
+        device: str | None = None,
     ) -> None:
         """Build the global network (first torch import happens here).
 
@@ -177,13 +178,12 @@ class A3CAgent(BaseAgent):
 
     # ------------------------------------------------------------ training
 
-    def get_weights(self) -> Dict[str, Any]:
+    def get_weights(self) -> dict[str, Any]:
         """Thread-safe copy of the global network weights."""
-        torch = _torch()
         with self.lock:
             return {k: v.detach().clone() for k, v in self.net.state_dict().items()}
 
-    def set_weights(self, state: Dict[str, Any]) -> None:
+    def set_weights(self, state: dict[str, Any]) -> None:
         """Thread-safe load of weights into the global network."""
         with self.lock:
             self.net.load_state_dict(state)
@@ -192,13 +192,13 @@ class A3CAgent(BaseAgent):
         """Apply worker gradients to the global network under the lock."""
         torch = _torch()
         with self.lock:
-            for param, grad in zip(self.net.parameters(), gradients):
+            for param, grad in zip(self.net.parameters(), gradients, strict=False):
                 param.grad = grad.detach().to(self.device)
             torch.nn.utils.clip_grad_norm_(self.net.parameters(), self.cfg.max_grad_norm)
             self.optimizer.step()
             self.optimizer.zero_grad(set_to_none=True)
 
-    def update(self, batch: Dict[str, Any]) -> Dict[str, float]:
+    def update(self, batch: dict[str, Any]) -> dict[str, float]:
         """Single-process n-step A2C update (kept for API parity/tests).
 
         ``batch`` contains ``obs`` (N,C,H,W), ``actions``, ``returns``.
@@ -267,13 +267,12 @@ class A3CWorker(threading.Thread):
         self,
         agent: A3CAgent,
         env_factory: Callable[[], Any],
-        config: Optional[A3CConfig] = None,
+        config: A3CConfig | None = None,
         worker_id: int = 0,
-        stop_event: Optional[threading.Event] = None,
+        stop_event: threading.Event | None = None,
     ) -> None:
         _require_torch()
         super().__init__(daemon=True, name=f"a3c-worker-{worker_id}")
-        torch = _torch()
         self.agent = agent
         self.env_factory = env_factory
         self.cfg = config if config is not None else A3CConfig()
@@ -360,9 +359,9 @@ class A3CTrainer:
         env_factory: Callable[[], Any],
         obs_shape=None,
         n_actions: int = 12,
-        config: Optional[A3CConfig] = None,
-        total_steps: Optional[int] = None,
-        agent: Optional[A3CAgent] = None,
+        config: A3CConfig | None = None,
+        total_steps: int | None = None,
+        agent: A3CAgent | None = None,
     ) -> None:
         _require_torch()
         self.env_factory = env_factory
@@ -379,9 +378,9 @@ class A3CTrainer:
             shape = obs_shape if obs_shape is not None else 5
             agent = A3CAgent(cfg, in_channels=shape, n_actions=int(n_actions))
         self.agent = agent
-        self.history: Dict[str, list] = {"steps": [], "elapsed_s": []}
+        self.history: dict[str, list] = {"steps": [], "elapsed_s": []}
 
-    def train(self) -> Dict[str, list]:  # pragma: no cover - requires torch
+    def train(self) -> dict[str, list]:  # pragma: no cover - requires torch
         """Run asynchronous training; returns the history dict."""
         stop_event = threading.Event()
         workers = [

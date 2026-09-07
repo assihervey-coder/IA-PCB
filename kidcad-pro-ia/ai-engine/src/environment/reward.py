@@ -19,7 +19,6 @@ expressed in grid cells (a via counts as one layer unit in the distance).
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Optional
 
 
 @dataclass
@@ -48,7 +47,7 @@ class RewardShaper:
     can be unit-tested and reused outside the environment.
     """
 
-    def __init__(self, config: Optional[RewardConfig] = None) -> None:
+    def __init__(self, config: RewardConfig | None = None) -> None:
         self.cfg = config if config is not None else RewardConfig()
 
     def progress(self, prev_dist: float, new_dist: float) -> float:

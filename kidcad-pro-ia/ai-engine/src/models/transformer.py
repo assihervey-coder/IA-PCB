@@ -18,9 +18,8 @@ classes are built on first use via the module-level ``__getattr__`` (PEP 562).
 from __future__ import annotations
 
 import math
-from typing import Optional, Tuple
 
-_LAZY_CLASSES: Optional[dict] = None
+_LAZY_CLASSES: dict | None = None
 
 
 def _torch():
@@ -117,7 +116,7 @@ def _lazy_classes() -> dict:
                     pos = pos[:, : tokens.shape[1]]
                 return tokens + pos
 
-            def forward(self, x) -> Tuple[torch.Tensor, torch.Tensor]:
+            def forward(self, x) -> tuple[torch.Tensor, torch.Tensor]:
                 tokens = self.patch_embed(x)
                 hidden = self.norm(self.encoder(self._add_position(tokens)))
                 return hidden[:, 0], hidden[:, 1:]

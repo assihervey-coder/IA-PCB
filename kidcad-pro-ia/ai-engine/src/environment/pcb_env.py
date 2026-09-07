@@ -56,17 +56,17 @@ from __future__ import annotations
 import heapq
 import math
 import random
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Dict, Iterable, Iterator, List, Optional, Sequence, Set, Tuple
 
 import numpy as np
 
 from .action_space import ActionSpace
 from .reward import RewardConfig, RewardShaper
 
-Cell = Tuple[int, int, int]  # (x, y, layer) in grid cells
+Cell = tuple[int, int, int]  # (x, y, layer) in grid cells
 
-_MOVES_4: Tuple[Tuple[int, int], ...] = ((0, -1), (1, 0), (0, 1), (-1, 0))
+_MOVES_4: tuple[tuple[int, int], ...] = ((0, -1), (1, 0), (0, 1), (-1, 0))
 
 
 @dataclass
@@ -90,14 +90,14 @@ class EnvConfig:
     """
 
     grid_mm: float = 0.25
-    max_steps: Optional[int] = None
+    max_steps: int | None = None
     via_penalty: float = 15.0
     step_penalty: float = 0.02
     progress_coef: float = 8.0
     success_bonus: float = 100.0
     collision_penalty: float = 2.0
     clearance_cells: int = 1
-    seed: Optional[int] = None
+    seed: int | None = None
 
 
 @dataclass
@@ -119,7 +119,7 @@ class _Net:
 
     name: str
     net_class: str
-    pads: List[_Pad]
+    pads: list[_Pad]
     min_track_width_mm: float
     clearance_mm: float
 
@@ -134,10 +134,10 @@ class _Episode:
     layer: int = 0
     steps: int = 0
     vias: int = 0
-    start: Optional[Cell] = None
-    targets: List[Cell] = field(default_factory=list)
-    path: List[Cell] = field(default_factory=list)
-    visited: Set[Cell] = field(default_factory=set)
+    start: Cell | None = None
+    targets: list[Cell] = field(default_factory=list)
+    path: list[Cell] = field(default_factory=list)
+    visited: set[Cell] = field(default_factory=set)
     done: bool = False
     success: bool = False
 
@@ -148,8 +148,8 @@ class PCBRouteEnv:
     def __init__(
         self,
         board: dict,
-        nets: List[dict],
-        config: Optional[EnvConfig] = None,
+        nets: list[dict],
+        config: EnvConfig | None = None,
     ) -> None:
         """Build the grid environment from plain-Python descriptions.
 
@@ -169,7 +169,7 @@ class PCBRouteEnv:
         self.height_mm = float(board.get("height_mm", 100.0) or 100.0)
         self.layer_count = max(1, int(board.get("layer_count", 2) or 2))
         names = board.get("layer_names")
-        self.layer_names: List[str] = list(names) if names else [
+        self.layer_names: list[str] = list(names) if names else [
             f"L{i}" for i in range(self.layer_count)
         ]
         if len(self.layer_names) < self.layer_count:
@@ -194,20 +194,20 @@ class PCBRouteEnv:
             )
         )
 
-        self._nets: List[_Net] = [self._parse_net(n) for n in (nets or [])]
-        self._routes_cells: Dict[str, Set[Cell]] = {}  # per-net routed cells
-        self._net_routes: Dict[str, dict] = {}         # per-net route dict output
+        self._nets: list[_Net] = [self._parse_net(n) for n in (nets or [])]
+        self._routes_cells: dict[str, set[Cell]] = {}  # per-net routed cells
+        self._net_routes: dict[str, dict] = {}         # per-net route dict output
         self._episode = _Episode()
         self.max_steps: int = self._resolve_max_steps()
 
-        self._static: Optional[np.ndarray] = None  # lazily built blocking grid
+        self._static: np.ndarray | None = None  # lazily built blocking grid
         self._build_static_blocking()
 
     # ------------------------------------------------------------------ setup
 
     def _parse_net(self, spec: dict) -> _Net:
         """Convert a net description dict into the internal representation."""
-        pads: List[_Pad] = []
+        pads: list[_Pad] = []
         for pad in spec.get("pads") or []:
             pos = pad.get("position") or {}
             layer = int(pad.get("layer", 0) or 0)
@@ -263,13 +263,13 @@ class PCBRouteEnv:
 
     # ------------------------------------------------------- coordinate utils
 
-    def to_cell(self, x_mm: float, y_mm: float) -> Tuple[int, int]:
+    def to_cell(self, x_mm: float, y_mm: float) -> tuple[int, int]:
         """Convert millimetre coordinates to integer grid cell indices."""
         gx = min(max(int(round(float(x_mm) / self.res)), 0), self.grid_w - 1)
         gy = min(max(int(round(float(y_mm) / self.res)), 0), self.grid_h - 1)
         return gx, gy
 
-    def to_mm(self, gx: int, gy: int) -> Tuple[float, float]:
+    def to_mm(self, gx: int, gy: int) -> tuple[float, float]:
         """Convert grid cell indices to millimetre coordinates."""
         return float(gx) * self.res, float(gy) * self.res
 
@@ -291,22 +291,22 @@ class PCBRouteEnv:
         return len(self._nets)
 
     @property
-    def net_names(self) -> List[str]:
+    def net_names(self) -> list[str]:
         """Names of the nets, in declaration order."""
         return [net.name for net in self._nets]
 
     @property
-    def grid_shape(self) -> Tuple[int, int, int]:
+    def grid_shape(self) -> tuple[int, int, int]:
         """Grid dimensions as ``(H, W, layer_count)``."""
         return self.grid_h, self.grid_w, self.layer_count
 
     @property
-    def observation_shape(self) -> Tuple[int, int, int]:
+    def observation_shape(self) -> tuple[int, int, int]:
         """Observation shape ``(channels, H, W)`` with ``channels = layer_count + 3``."""
         return (self.layer_count + 3, self.grid_h, self.grid_w)
 
     @property
-    def episode_path(self) -> List[Cell]:
+    def episode_path(self) -> list[Cell]:
         """Cell path walked during the current (or last) episode."""
         return list(self._episode.path)
 
@@ -386,8 +386,8 @@ class PCBRouteEnv:
         if not 0 <= net_index < len(self._nets):
             raise IndexError(f"net_index {net_index} out of range [0, {len(self._nets)})")
         net = self._nets[net_index]
-        cells: List[Cell] = []
-        seen: Set[Cell] = set()
+        cells: list[Cell] = []
+        seen: set[Cell] = set()
         for pad in net.pads:
             cell = self._pad_cell(pad)
             if cell not in seen:
@@ -409,7 +409,7 @@ class PCBRouteEnv:
             ep.x, ep.y, ep.layer = start
         return self._observation()
 
-    def step(self, action: int) -> Tuple[np.ndarray, float, bool, bool, dict]:
+    def step(self, action: int) -> tuple[np.ndarray, float, bool, bool, dict]:
         """Apply one action.
 
         Args:
@@ -548,9 +548,9 @@ class PCBRouteEnv:
             if isinstance(entry, dict):
                 yield entry
 
-    def _route_entry_cells(self, entry: dict) -> Set[Cell]:
+    def _route_entry_cells(self, entry: dict) -> set[Cell]:
         """Extract blocked cells from one route entry."""
-        cells: Set[Cell] = set()
+        cells: set[Cell] = set()
         segments = entry.get("segments")
         if isinstance(segments, (list, tuple)) and segments:
             for seg in segments:
@@ -576,7 +576,7 @@ class PCBRouteEnv:
         points = entry.get("points")
         if isinstance(points, (list, tuple)) and points:
             layer = min(max(int(entry.get("layer", 0) or 0), 0), self.layer_count - 1)
-            cell_pts: List[Tuple[int, int]] = [
+            cell_pts: list[tuple[int, int]] = [
                 self.to_cell(float(p.get("x", 0.0) or 0.0), float(p.get("y", 0.0) or 0.0))
                 for p in points
             ]
@@ -588,14 +588,14 @@ class PCBRouteEnv:
         return cells
 
     @staticmethod
-    def _raster_cells(c0: Tuple[int, int], c1: Tuple[int, int]) -> List[Tuple[int, int]]:
+    def _raster_cells(c0: tuple[int, int], c1: tuple[int, int]) -> list[tuple[int, int]]:
         """Integer straight line between two cells (diagonal-safe raster)."""
         x0, y0 = c0
         x1, y1 = c1
         n = max(abs(x1 - x0), abs(y1 - y0))
         if n == 0:
             return [(x0, y0)]
-        out: List[Tuple[int, int]] = []
+        out: list[tuple[int, int]] = []
         for i in range(n + 1):
             t = i / n
             out.append((int(round(x0 + (x1 - x0) * t)), int(round(y0 + (y1 - y0) * t))))
@@ -625,8 +625,8 @@ class PCBRouteEnv:
         net = self._nets[net_index]
         self.clear_net_route(net.name)
 
-        pad_cells: List[Cell] = []
-        seen: Set[Cell] = set()
+        pad_cells: list[Cell] = []
+        seen: set[Cell] = set()
         for pad in net.pads:
             cell = self._pad_cell(pad)
             if cell not in seen:
@@ -642,11 +642,11 @@ class PCBRouteEnv:
             return route
 
         start = self._pick_start(pad_cells)
-        connected: Set[Cell] = {start}
-        remaining: List[Cell] = [c for c in pad_cells if c != start]
-        segments: List[dict] = []
-        vias: List[dict] = []
-        all_cells: Set[Cell] = set()
+        connected: set[Cell] = {start}
+        remaining: list[Cell] = [c for c in pad_cells if c != start]
+        segments: list[dict] = []
+        vias: list[dict] = []
+        all_cells: set[Cell] = set()
         completed = True
 
         while remaining:
@@ -682,7 +682,7 @@ class PCBRouteEnv:
         self._net_routes[net.name] = route
         return route
 
-    def route_all(self, strategy: str = "astar") -> List[dict]:
+    def route_all(self, strategy: str = "astar") -> list[dict]:
         """Route every net, shortest first (progressive congestion).
 
         Nets are ordered by their minimal pad-to-pad manhattan span (short
@@ -716,7 +716,7 @@ class PCBRouteEnv:
                 best = min(best, self._pad_dist(cells[i], cells[j]))
         return best
 
-    def _astar(self, net_index: int, source: Cell, goal: Cell) -> Optional[List[Cell]]:
+    def _astar(self, net_index: int, source: Cell, goal: Cell) -> list[Cell] | None:
         """Point-to-point A* on the free-cell grid (4-connected + vias).
 
         Costs: 1 per orthogonal move, ``via_penalty`` per layer change.
@@ -738,10 +738,10 @@ class PCBRouteEnv:
             return abs(cell[0] - gx) + abs(cell[1] - gy)
 
         counter = 0
-        open_heap: List[Tuple[float, float, int, Cell]] = [(heuristic(source), 0.0, counter, source)]
-        g_score: Dict[Cell, float] = {source: 0.0}
-        parent: Dict[Cell, Cell] = {}
-        closed: Set[Cell] = set()
+        open_heap: list[tuple[float, float, int, Cell]] = [(heuristic(source), 0.0, counter, source)]
+        g_score: dict[Cell, float] = {source: 0.0}
+        parent: dict[Cell, Cell] = {}
+        closed: set[Cell] = set()
 
         while open_heap:
             _f, g, _c, cell = heapq.heappop(open_heap)
@@ -755,7 +755,7 @@ class PCBRouteEnv:
                 path.reverse()
                 return path
             x, y, layer = cell
-            neighbours: List[Tuple[Cell, float]] = []
+            neighbours: list[tuple[Cell, float]] = []
             for dx, dy in _MOVES_4:
                 nx, ny = x + dx, y + dy
                 if 0 <= nx < width and 0 <= ny < height and bool(free[layer, ny, nx]):
@@ -810,10 +810,10 @@ class PCBRouteEnv:
 
     def _cells_to_geometry(
         self, cells: Sequence[Cell], width_mm: float
-    ) -> Tuple[List[dict], List[dict]]:
+    ) -> tuple[list[dict], list[dict]]:
         """Merge a cell path into collinear segments + via descriptors."""
-        segments: List[dict] = []
-        vias: List[dict] = []
+        segments: list[dict] = []
+        vias: list[dict] = []
         if not cells:
             return segments, vias
 
@@ -832,7 +832,7 @@ class PCBRouteEnv:
 
         seg_start = cells[0]
         prev = cells[0]
-        direction: Optional[Tuple[int, int]] = None
+        direction: tuple[int, int] | None = None
         for cell in cells[1:]:
             if cell[0] == prev[0] and cell[1] == prev[1] and cell[2] != prev[2]:
                 # Layer change on the spot: close the segment, emit the via.
@@ -882,9 +882,9 @@ class PCBRouteEnv:
         """
         ep = self._episode
         free = self._free_mask(ep.net_index) if 0 <= ep.net_index < len(self._nets) else None
-        rows: List[str] = []
+        rows: list[str] = []
         for y in range(self.grid_h):
-            row_chars: List[str] = []
+            row_chars: list[str] = []
             for x in range(self.grid_w):
                 cell = (x, y, layer)
                 if ep.start == cell:
