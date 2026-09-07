@@ -153,6 +153,22 @@ make test-ai              # pytest ai-engine
 make test-frontend        # Playwright E2E (tests/e2e)
 ```
 
+## Magic Pack ✨
+
+Cinq fonctions d'intelligence embarquée, testées et déterministes :
+
+| Fonction | Endpoint | Description |
+|---|---|---|
+| 🔮 Magic Copilot | `POST .../magic` | langage naturel FR/EN → actions PCB (« place R1 près de U3 », « largeur 12 mil ») |
+| 🌡️ Thermal Ghost | `POST .../thermal` | carte thermique stationnaire (Gauss-Seidel), hotspots classés, what-if |
+| 📡 Eye Oracle | `POST .../si` | impédance Z0, délai, budget de réflexion, ouverture d'œil estimée à 1 Gbps |
+| ⚔️ AI Arena | `POST .../arena` | duel de routeurs greedy vs A*, récit WebSocket, classement ELO |
+| 🧬 EvoPlace | ai-engine | placement génétique (HPWL + pénalité de recouvrement), streaming par génération |
+
+Côté frontend : palette **⌘K** (MagicBar) avec aperçu des actions, exécution
+sur Entrée et raccourcis 🌡️/📡/⚔️. Détails : [`docs/guides/guide-magic-pack.md`](docs/guides/guide-magic-pack.md)
+et ADR-004.
+
 ## Documentation
 
 - [`docs/architecture/contracts.md`](docs/architecture/contracts.md) — contrats d'interface (source de vérité)

@@ -361,3 +361,155 @@ func footprintToDTO(fp *domainlayout.Footprint) pcbformat.FootprintDTO {
 	}
 	return fd
 }
+
+// --------------------------------------------------------------
+// DTO Magic Pack (additif, hors contrat figé contracts.md §2)
+// --------------------------------------------------------------
+
+// MagicRequest is the payload of POST .../magic.
+type MagicRequest struct {
+	Utterance string `json:"utterance"`
+	Apply     bool   `json:"apply"` // false = simple interprétation
+}
+
+// MagicActionDTO mirrors magic.Action (snake_case for the frontend).
+type MagicActionDTO struct {
+	Kind       string         `json:"kind"`
+	Params     map[string]any `json:"params"`
+	Summary    string         `json:"summary"`
+	Executable bool           `json:"executable"`
+}
+
+// MagicInterpretationDTO mirrors magic.Interpretation.
+type MagicInterpretationDTO struct {
+	Utterance  string           `json:"utterance"`
+	Language   string           `json:"language"`
+	Actions    []MagicActionDTO `json:"actions"`
+	Confidence float64          `json:"confidence"`
+	Reply      string           `json:"reply"`
+}
+
+// MagicResult is the response of POST .../magic.
+type MagicResult struct {
+	Interpretation MagicInterpretationDTO `json:"interpretation"`
+	Applied        []string               `json:"applied"`
+	Skipped        []string               `json:"skipped"`
+	BoardChanged   bool                   `json:"board_changed"`
+	RulesChanged   bool                   `json:"rules_changed"`
+	Mode           string                 `json:"mode"` // "interpret" | "apply"
+}
+
+// ThermalSourceDTO is one heat source of the thermal payload.
+type ThermalSourceDTO struct {
+	Ref      string  `json:"ref"`
+	PowerW   float64 `json:"power_w"`
+	X        float64 `json:"x"`
+	Y        float64 `json:"y"`
+	WidthMM  float64 `json:"width_mm"`
+	HeightMM float64 `json:"height_mm"`
+}
+
+// ThermalRequest allows a custom ambient temperature and explicit sources
+// (simulation "what-if"); when Sources is empty the project components and
+// their guessed dissipation are used.
+type ThermalRequest struct {
+	AmbientC float64            `json:"ambient_c"`
+	Sources  []ThermalSourceDTO `json:"sources"`
+}
+
+// ThermalResultDTO mirrors verification.ThermalResult (grid rows kept
+// compact: rounded to 0.1 °C).
+type ThermalResultDTO struct {
+	GridW       int             `json:"grid_w"`
+	GridH       int             `json:"grid_h"`
+	CellMM      float64         `json:"cell_mm"`
+	AmbientC    float64         `json:"ambient_c"`
+	MaxTempC    float64         `json:"max_temp_c"`
+	MeanTempC   float64         `json:"mean_temp_c"`
+	MinTempC    float64         `json:"min_temp_c"`
+	MaxGradient float64         `json:"max_gradient_c_per_mm"`
+	Hotspots    []ThermalHotDTO `json:"hotspots"`
+	Grid        []float64       `json:"grid"`
+	Warnings    []string        `json:"warnings"`
+}
+
+// ThermalHotDTO is one hotspot of the thermal payload.
+type ThermalHotDTO struct {
+	Rank          int     `json:"rank"`
+	X             float64 `json:"x"`
+	Y             float64 `json:"y"`
+	TempC         float64 `json:"temp_c"`
+	AboveAmbientC float64 `json:"above_ambient_c"`
+	LikelyRef     string  `json:"likely_ref"`
+}
+
+// SIResultDTO mirrors verification.SIResult.
+type SIResultDTO struct {
+	DriverPS  float64    `json:"driver_rise_time_ps"`
+	BitPeriod float64    `json:"bit_period_ps"`
+	Analyzed  int        `json:"analyzed"`
+	OkCount   int        `json:"ok_count"`
+	WarnCount int        `json:"warning_count"`
+	CritCount int        `json:"critical_count"`
+	Nets      []SINetDTO `json:"nets"`
+	MaxEyeNet string     `json:"worst_eye_net"`
+	ScorePct  float64    `json:"si_score_pct"`
+	Summary   string     `json:"summary"`
+}
+
+// SINetDTO mirrors verification.SINetReport.
+type SINetDTO struct {
+	Net          string   `json:"net"`
+	LengthMM     float64  `json:"length_mm"`
+	ViaCount     int      `json:"via_count"`
+	WidthMM      float64  `json:"width_mm"`
+	Z0Ohms       float64  `json:"z0_ohms"`
+	DelayPS      float64  `json:"delay_ps"`
+	ReflectionPS float64  `json:"reflection_budget_ps"`
+	EyeHeightPct float64  `json:"eye_height_pct"`
+	EyeWidthPS   float64  `json:"eye_width_ps"`
+	JitterPS     float64  `json:"jitter_ps"`
+	Criticality  string   `json:"criticality"`
+	Advices      []string `json:"advices"`
+}
+
+// ArenaReportDTO mirrors arena.MatchReport.
+type ArenaReportDTO struct {
+	ProjectID string              `json:"project_id"`
+	Nets      []string            `json:"nets"`
+	Greedy    ArenaCardDTO        `json:"greedy"`
+	Astar     ArenaCardDTO        `json:"astar"`
+	Winner    string              `json:"winner"`
+	Margin    float64             `json:"margin"`
+	Elo       [2]ArenaStandingDTO `json:"elo"`
+	Log       []string            `json:"log"`
+	At        string              `json:"at"`
+}
+
+// ArenaCardDTO mirrors arena.FighterResult.
+type ArenaCardDTO struct {
+	Strategy      string   `json:"strategy"`
+	Completed     int      `json:"completed"`
+	Failed        int      `json:"failed"`
+	TotalLengthMM float64  `json:"total_length_mm"`
+	ViaCount      int      `json:"via_count"`
+	Collisions    int      `json:"collisions"`
+	DurationMS    int64    `json:"duration_ms"`
+	Score         float64  `json:"score"`
+	NetLog        []string `json:"net_log"`
+}
+
+// ArenaStandingDTO mirrors arena.Standing.
+type ArenaStandingDTO struct {
+	Strategy string  `json:"strategy"`
+	Rating   float64 `json:"rating"`
+	Matches  int     `json:"matches"`
+	Wins     int     `json:"wins"`
+	Losses   int     `json:"losses"`
+	Draws    int     `json:"draws"`
+}
+
+// ArenaLeaderboardDTO is the response of GET /api/v1/arena/leaderboard.
+type ArenaLeaderboardDTO struct {
+	Standings []ArenaStandingDTO `json:"standings"`
+}

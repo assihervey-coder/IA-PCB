@@ -1509,3 +1509,241 @@ a.btn {
   text-align: center;
   padding: 20px;
 }
+
+// ============================================================
+// 15. Magic Pack — palette copilot (⌘K), FAB et résultats
+// ============================================================
+
+.magic-fab {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 90;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: 1px solid rgba($accent, 0.35);
+  background: linear-gradient(135deg, rgba($accent, 0.22), rgba($copper, 0.18)), $panel;
+  box-shadow: $shadow-2, 0 0 24px rgba($accent, 0.25);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+
+  &:hover {
+    transform: translateY(-2px) scale(1.05);
+    box-shadow: $shadow-2, 0 0 34px rgba($accent, 0.45);
+  }
+  .magic-fab-icon {
+    font-size: 22px;
+    line-height: 1;
+  }
+}
+
+.magic-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  background: rgba($bg, 0.72);
+  backdrop-filter: blur(6px);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+  animation: magic-fade 0.15s ease;
+}
+
+@keyframes magic-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.magic-panel {
+  width: min(680px, calc(100vw - 32px));
+  background: $panel;
+  border: 1px solid $border;
+  border-radius: $radius-lg;
+  box-shadow: $shadow-2, 0 0 60px rgba($accent, 0.12);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: magic-pop 0.18s ease;
+}
+
+@keyframes magic-pop {
+  from { transform: translateY(-8px) scale(0.98); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+
+.magic-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: $panel-2;
+  border: 1px solid $border;
+  border-radius: $radius;
+  padding: 10px 12px;
+
+  &:focus-within {
+    border-color: rgba($accent, 0.55);
+    box-shadow: 0 0 0 3px rgba($accent, 0.12);
+  }
+  .magic-spark { font-size: 16px; }
+}
+
+.magic-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: $text;
+  font-size: 15px;
+  &::placeholder { color: $muted; }
+}
+
+.magic-kbd {
+  font-family: $mono-stack;
+  font-size: 11px;
+  color: $muted;
+  border: 1px solid $border;
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.magic-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.magic-chip {
+  background: $panel-2;
+  color: $muted;
+  border: 1px solid $border;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+
+  &:hover { color: $accent; border-color: rgba($accent, 0.5); }
+}
+
+.magic-quick {
+  display: flex;
+  gap: 8px;
+
+  button {
+    flex: 1;
+    background: $panel-2;
+    border: 1px solid $border;
+    border-radius: $radius-sm;
+    color: $text;
+    font-size: 13px;
+    padding: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s ease, background 0.15s ease;
+
+    &:hover:not(:disabled) {
+      border-color: rgba($accent, 0.5);
+      background: rgba($accent, 0.08);
+    }
+    &:disabled { opacity: 0.5; cursor: wait; }
+  }
+}
+
+.magic-result {
+  border: 1px solid $border;
+  border-radius: $radius;
+  background: $panel-2;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.magic-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13.5px;
+  color: $text;
+}
+
+.magic-confidence {
+  font-family: $mono-stack;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  &.high { color: $green; background: rgba($green, 0.12); }
+  &.mid { color: $warn; background: rgba($warn, 0.12); }
+  &.low { color: $red; background: rgba($red, 0.12); }
+}
+
+.magic-action {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: $text;
+  padding: 6px 8px;
+  border-radius: $radius-sm;
+  background: rgba($accent, 0.05);
+  border: 1px solid rgba($accent, 0.18);
+
+  &.delegate {
+    background: rgba($copper, 0.05);
+    border-color: rgba($copper, 0.2);
+  }
+  .magic-action-icon { width: 20px; text-align: center; }
+  .magic-deleg {
+    margin-left: auto;
+    color: $muted;
+    font-size: 11px;
+    font-style: normal;
+  }
+}
+
+.magic-applied {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.magic-applied-line {
+  font-size: 12.5px;
+  color: $green;
+  font-family: $mono-stack;
+}
+
+.magic-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+
+  .magic-ghost,
+  .magic-cta {
+    border-radius: $radius-sm;
+    font-size: 13px;
+    padding: 8px 16px;
+    cursor: pointer;
+  }
+  .magic-ghost {
+    background: transparent;
+    border: 1px solid $border;
+    color: $muted;
+    &:hover:not(:disabled) { color: $text; border-color: rgba($accent, 0.4); }
+  }
+  .magic-cta {
+    background: linear-gradient(135deg, rgba($accent, 0.9), rgba($accent, 0.65));
+    border: 1px solid rgba($accent, 0.7);
+    color: #04222b;
+    font-weight: 600;
+    &:hover:not(:disabled) { filter: brightness(1.08); }
+  }
+  button:disabled { opacity: 0.55; cursor: wait; }
+}

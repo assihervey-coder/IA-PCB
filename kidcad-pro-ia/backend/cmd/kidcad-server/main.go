@@ -17,8 +17,10 @@ import (
 	"syscall"
 	"time"
 
+	arenaapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/arena"
 	exportapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/export"
 	layoutapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/layout"
+	magicapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/magic"
 	schematicapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/schematic"
 	verificationapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/verification"
 	domainconstraints "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/constraints"
@@ -99,6 +101,12 @@ func main() {
 	bomSvc := exportapp.NewBOMService(repo, log)
 	stepSvc := exportapp.NewSTEPService(repo, writer.NewStepWriter(), cfg.DataDir, log)
 
+	// Magic Pack : copilot langage naturel, thermique, oracle d'œil, arène.
+	magicSvc := magicapp.NewMagicService(repo, log)
+	thermalSvc := verificationapp.NewThermalChecker(repo, 25.0)
+	siSvc := verificationapp.NewSIChecker(repo)
+	arenaSvc := arenaapp.NewArenaService(repo, log)
+
 	handler := rest.NewRouter(rest.Deps{
 		Projects:   repo,
 		Import:     importSvc,
@@ -108,6 +116,10 @@ func main() {
 		Optimize:   optimizeSvc,
 		DRC:        drcChecker,
 		ERC:        ercChecker,
+		Thermal:    thermalSvc,
+		SI:         siSvc,
+		Magic:      magicSvc,
+		Arena:      arenaSvc,
 		Gerber:     gerberSvc,
 		BOM:        bomSvc,
 		STEP:       stepSvc,

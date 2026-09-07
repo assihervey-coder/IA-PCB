@@ -11,8 +11,10 @@ import (
 	"time"
 
 	apperrors "github.com/kidcad/kidcad-pro-ia/backend/internal/application"
+	arenaapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/arena"
 	exportapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/export"
 	layoutapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/layout"
+	magicapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/magic"
 	schematicapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/schematic"
 	verificationapp "github.com/kidcad/kidcad-pro-ia/backend/internal/application/verification"
 	domainproject "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/project"
@@ -34,6 +36,10 @@ type Deps struct {
 	Optimize   *layoutapp.OptimizeService
 	DRC        *verificationapp.DRCChecker
 	ERC        *verificationapp.ERCChecker
+	Thermal    *verificationapp.ThermalChecker
+	SI         *verificationapp.SIChecker
+	Magic      *magicapp.MagicService
+	Arena      *arenaapp.ArenaService
 	Gerber     *exportapp.GerberService
 	BOM        *exportapp.BOMService
 	STEP       *exportapp.STEPService
@@ -75,6 +81,13 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("GET /api/v1/projects/{id}/jobs/{jobID}", d.handleGetJob)
 	mux.HandleFunc("POST /api/v1/projects/{id}/drc", d.handleDRC)
 	mux.HandleFunc("POST /api/v1/projects/{id}/erc", d.handleERC)
+
+	// Magic Pack (additif, hors contrat figé).
+	mux.HandleFunc("POST /api/v1/projects/{id}/magic", d.handleMagic)
+	mux.HandleFunc("POST /api/v1/projects/{id}/thermal", d.handleThermal)
+	mux.HandleFunc("POST /api/v1/projects/{id}/si", d.handleSI)
+	mux.HandleFunc("POST /api/v1/projects/{id}/arena", d.handleArena)
+	mux.HandleFunc("GET /api/v1/arena/leaderboard", d.handleArenaLeaderboard)
 
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/gerber", d.handleExportGerber)
 	mux.HandleFunc("GET /api/v1/projects/{id}/export/bom", d.handleExportBOM)

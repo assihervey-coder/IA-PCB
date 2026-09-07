@@ -193,3 +193,25 @@ Work Log:
 
 Stage Summary:
 - Monorepo kidcad-pro-ia FIDÈLE à l'arborescence demandée, complet et fonctionnel de bout en bout ; les modèles .pt restent générables via scripts/generate-models.sh (torch optionnel, repli A* intégré)
+
+---
+Task ID: magic-pack-1
+Agent: Super Z (main)
+Task: Implémenter le "Magic Pack" (fonctions spectaculaires) dans kidcad-pro-ia puis push GitHub
+
+Work Log:
+- 🔮 Magic Copilot: backend/internal/application/magic/ (parser.go NLP FR/EN pur Go, service.go exécution, 7 tests) + POST /projects/{id}/magic
+- 🌡️ Thermal Ghost: verification/thermal.go (Gauss-Seidel 96x96, hotspots, gradient, what-if via RunWithSources) + POST /projects/{id}/thermal
+- 📡 Eye Oracle: verification/signal_integrity.go (Z0 microstrip IPC-2141, délai, réflexions, eye height/width) + POST /projects/{id}/si
+- ⚔️ AI Arena: application/arena/ (arena.go ELO K=24, fighters.go greedy Manhattan + A* 4-connexe avec keep-outs et pads libérés, 4 tests) + POST /projects/{id}/arena + GET /arena/leaderboard + récit WebSocket stage "arena"
+- 🧬 EvoPlace: ai-engine/src/evolution/evo_place.py (GA: tournoi, BLX-α, mutation gaussienne, élitisme, fitness HPWL+overlap; démo CLI) + ai-engine/tests/test_evo_place.py (5 tests)
+- ⌘K MagicBar: frontend/src/app/components/magic/MagicBar.tsx (palette ⌘K, aperçu, exécution, raccourcis 🌡️📡⚔️) montée dans AppShell + styles globals.scss §15 + types + api client
+- Câblage: router.go (5 routes), dto.go (+Magic Pack DTOs), main.go (4 services), domain/constraints SetMinTrackWidth upsert
+- Docs: ADR-004 + guide-magic-pack.md + README section Magic Pack
+- Fixes: accents précomposés FR (map è→e), ancre "près de" filtrée des cibles, aliasing clones ELO, pads libérés A*, tags JSON Endpoint
+- Toolchain: Go 1.27.1 installé dans ~/toolchain (pas de root)
+
+Stage Summary:
+- go build ./backend/... OK, go vet OK, go test ./backend/... OK (magic 7, arena 4, integration)
+- pytest evo_place 5/5 OK, tsc --noEmit OK, démo evo_place converge 118→57.6 mm HPWL
+- Commit + push vers github.com/assihervey-coder/IA-PCB (main)

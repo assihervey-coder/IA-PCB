@@ -3,6 +3,7 @@ package constraints
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // ConstraintSet is the named collection of design rules of a project.
@@ -85,6 +86,39 @@ func (cs *ConstraintSet) Value(t RuleType, netClass string, layer int) (float64,
 		return 0, false
 	}
 	return rules[0].ValueMM, true
+}
+
+// SetMinTrackWidth upserts the min-track-width rule for a target: "all"
+// (or empty) rewrites the wildcard rule, a net-class name upserts a scoped
+// rule. Used by the Magic Copilot ("largeur de piste 0.3 mm").
+func (cs *ConstraintSet) SetMinTrackWidth(mm float64, target string) {
+	target = strings.TrimSpace(target)
+	if target == "" || target == "all" || target == "*" {
+		for i := range cs.Rules {
+			if cs.Rules[i].Type == RuleMinTrackWidth && cs.Rules[i].Scope.NetClass == AnyNetClass {
+				cs.Rules[i].ValueMM = mm
+				return
+			}
+		}
+		_ = cs.Add(Rule{
+			ID: "def-track-width", Name: "Largeur de piste minimale",
+			Type: RuleMinTrackWidth, Scope: Scope{NetClass: AnyNetClass, Layer: AnyLayer},
+			ValueMM: mm, Severity: SeverityError, Enabled: true,
+		})
+		return
+	}
+	id := "class-" + target + "-width"
+	for i := range cs.Rules {
+		if cs.Rules[i].ID == id {
+			cs.Rules[i].ValueMM = mm
+			return
+		}
+	}
+	_ = cs.Add(Rule{
+		ID: id, Name: "Largeur minimale (classe " + target + ")",
+		Type: RuleMinTrackWidth, Scope: Scope{NetClass: target, Layer: AnyLayer},
+		ValueMM: mm, Severity: SeverityError, Enabled: true,
+	})
 }
 
 // Validate reports the identifiers of inconsistent rules (empty ID, invalid

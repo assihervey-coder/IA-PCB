@@ -278,3 +278,129 @@ export interface ErrorResponse {
     message: string;
   };
 }
+
+// --------------------------------------------------------------
+// Magic Pack (endpoints additifs)
+// --------------------------------------------------------------
+
+export type MagicActionKind =
+  | "place_component"
+  | "move_component"
+  | "delete_component"
+  | "set_track_width"
+  | "add_net_class"
+  | "route"
+  | "optimize"
+  | "run_drc"
+  | "run_erc"
+  | "export";
+
+export interface MagicAction {
+  kind: MagicActionKind;
+  params: Record<string, unknown>;
+  summary: string;
+  executable: boolean;
+}
+
+export interface MagicInterpretation {
+  utterance: string;
+  language: "fr" | "en";
+  actions: MagicAction[];
+  confidence: number;
+  reply: string;
+}
+
+export interface MagicResult {
+  interpretation: MagicInterpretation;
+  applied: string[];
+  skipped: string[];
+  board_changed: boolean;
+  rules_changed: boolean;
+  mode: "interpret" | "apply";
+}
+
+export interface ThermalHotspot {
+  rank: number;
+  x: number;
+  y: number;
+  temp_c: number;
+  above_ambient_c: number;
+  likely_ref: string;
+}
+
+export interface ThermalResult {
+  grid_w: number;
+  grid_h: number;
+  cell_mm: number;
+  ambient_c: number;
+  max_temp_c: number;
+  mean_temp_c: number;
+  min_temp_c: number;
+  max_gradient_c_per_mm: number;
+  hotspots: ThermalHotspot[];
+  grid: number[];
+  warnings: string[];
+}
+
+export type SICriticality = "ok" | "warning" | "critical";
+
+export interface SINetReport {
+  net: string;
+  length_mm: number;
+  via_count: number;
+  width_mm: number;
+  z0_ohms: number;
+  delay_ps: number;
+  reflection_budget_ps: number;
+  eye_height_pct: number;
+  eye_width_ps: number;
+  jitter_ps: number;
+  criticality: SICriticality;
+  advices: string[];
+}
+
+export interface SIResult {
+  driver_rise_time_ps: number;
+  bit_period_ps: number;
+  analyzed: number;
+  ok_count: number;
+  warning_count: number;
+  critical_count: number;
+  nets: SINetReport[];
+  worst_eye_net: string;
+  si_score_pct: number;
+  summary: string;
+}
+
+export interface ArenaStanding {
+  strategy: string;
+  rating: number;
+  matches: number;
+  wins: number;
+  losses: number;
+  draws: number;
+}
+
+export interface ArenaFighterCard {
+  strategy: string;
+  completed: number;
+  failed: number;
+  total_length_mm: number;
+  via_count: number;
+  collisions: number;
+  duration_ms: number;
+  score: number;
+  net_log: string[];
+}
+
+export interface ArenaReport {
+  project_id: string;
+  nets: string[];
+  greedy: ArenaFighterCard;
+  astar: ArenaFighterCard;
+  winner: "greedy" | "astar" | "draw";
+  margin: number;
+  elo: [ArenaStanding, ArenaStanding];
+  log: string[];
+  at: string;
+}

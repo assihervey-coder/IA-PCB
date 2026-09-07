@@ -5,16 +5,21 @@
 import axios from "axios";
 import type {
   AIStrategy,
+  ArenaReport,
+  ArenaStanding,
   DRCResult,
   ERCResult,
   ImportResult,
   JobStarted,
   JobStatus,
   LayoutData,
+  MagicResult,
   Project,
   ProjectCreate,
   ProjectPatch,
   RouteJobStart,
+  SIResult,
+  ThermalResult,
 } from "./types";
 
 const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "/api/v1";
@@ -156,6 +161,38 @@ export const api = {
 
   async exportSTEP(projectId: string): Promise<ExportDownload> {
     return requestBlob(`/projects/${id(projectId)}/export/step`);
+  },
+
+  // ------------------------------------------------------------
+  // Magic Pack
+  // ------------------------------------------------------------
+
+  async magic(projectId: string, utterance: string, apply = false): Promise<MagicResult> {
+    const res = await http.post<MagicResult>(`/projects/${id(projectId)}/magic`, {
+      utterance,
+      apply,
+    });
+    return res.data;
+  },
+
+  async thermal(projectId: string): Promise<ThermalResult> {
+    const res = await http.post<ThermalResult>(`/projects/${id(projectId)}/thermal`, {});
+    return res.data;
+  },
+
+  async signalIntegrity(projectId: string): Promise<SIResult> {
+    const res = await http.post<SIResult>(`/projects/${id(projectId)}/si`, {});
+    return res.data;
+  },
+
+  async arenaFight(projectId: string): Promise<ArenaReport> {
+    const res = await http.post<ArenaReport>(`/projects/${id(projectId)}/arena`, {});
+    return res.data;
+  },
+
+  async arenaLeaderboard(): Promise<{ standings: ArenaStanding[] }> {
+    const res = await http.get<{ standings: ArenaStanding[] }>("/arena/leaderboard");
+    return res.data;
   },
 };
 
