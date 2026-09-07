@@ -107,3 +107,31 @@ Stage Summary:
 - Décisions : pin toolchain gRPC plutôt que diff normalisé ; benchmark exige checkpoint chargé (jamais A* vs A* déguisé) ; ODB++ simplifié assumé et documenté (contour/pours restent couverts par Gerber)
 - Dépôt : commit 9cfcade poussé sur github.com/assihervey-coder/YahriaCad — CI à surveiller (3 jobs attendus verts)
 - Sécurité : PAT toujours à révoquer (rappel récurrent)
+
+---
+Task ID: 6
+Agent: Super Z (main)
+Task: Lot « prod hardening » — auth JWT, CORS strict, rate limit IA, /metrics Prometheus, Docker durci, E2E auth
+
+Work Log:
+- Audit prod-ready préalable : CI verte identifiée, mais API ouverte, CORS *, pas de limites, pas de /metrics, image AI générique avec pip au démarrage
+- Déps Go épinglées en go 1.22 (GOTOOLCHAIN=local, go mod edit + tidy) : golang-jwt/jwt/v5 v5.3.1, x/time v0.5.0, prometheus/client_golang v1.19.1 — piège : go get @latest bumpait le go directive à 1.25 (casserait Docker golang:1.22-alpine)
+- config.go : AuthEnabled/JWTSecret/JWTTTL/AuthUsers/AIRateRPS/AIRateBurst (env + JSON file), secret => auth implicite, isTruthy
+- infrastructure/auth : Service JWT HS256 (claims sub/iss/iat/exp), users bcrypt (préfixe $2) ou clair (comparaison constante), Login/Verify (alg confusion + issuer + expiration requis), GenerateEphemeralSecret, Middleware (publics /healthz /metrics /auth/login, OPTIONS passant, ?token= pour WS), IdentityFrom(ctx)
+- rest : auth_handler.go (login 200/401/503 auth_disabled, me), ratelimit.go (buckets par IP, sweep 10 min, X-Forwarded-For, 429+Retry-After), metrics.go (promauto, compteur+histogramme, normalizeRoute avec {id} + /api/v1/{unmatched} pour cardinalité bornée), router.go (chaîne CORS→recovery/log/instrument→auth, routes IA wrappées aiLimited)
+- CORS strict : ACAO reflétée seulement si origine dans AllowedOrigins (ou * explicite), Vary: Origin, rien sans Origin
+- main.go : buildAuthService (production sans secret => os.Exit(1) ; dev => éphémère ; production sans auth => warning « API OUVERTE »)
+- Frontend : lib/api/auth.ts (localStorage yahriacad_jwt), intercepteurs axios (Bearer + 401 hors /auth/ → purge + redirect /pages/login), page /pages/login (503 auth_disabled gérée avec « Continuer sans connexion »), logout btn project-manager, styles .auth-*
+- Docker : Dockerfile.ai multi-stage (venv, torch optionnel WITH_TORCH=true, healthcheck grpc channel, user nonroot), compose (build AI dédié, env JWT/rate limit backend, defaults démo surchargeables .env), .dockerignore racine (node_modules/checkpoints/.git…)
+- Docs : contracts.md §14, OpenAPI (/auth/login, /auth/me, bearerAuth, schémas — piège YAML : `Authorization: Bearer` en scalaire nu casse le parse, utiliser >-), README (table env + section v0.6), appsettings.prod.json, tests/e2e/README
+- E2E auth.spec.ts : 3 tests tolérant aux 3 modes (auth activée / auth_disabled / backend down), typecheck via tsc esModuleInterop
+- Smoke réel scripts/smoke_prod_hardening.sh : serveur binaire setsid + 18 checks (401/200/login/me/WS ?token=/ACAO allow+deny/burst→429+Retry-After/metrics 3 familles) — SMOKE OK ; piège sandbox : process détachés tués entre appels bash => tout le smoke dans une seule session script
+- Attente corrigée : ws ?token= => 400 (hub réel refuse handshake curl) et non 404 — 400 prouve le passage de l'auth
+- Validation finale : gofmt clean, go vet OK, go test -race 14 pkgs OK, ruff OK, pytest 5/5, tsc 0 err, next build OK (route /pages/login présente)
+- Commit e4a8065 poussé ; CI run e4a8065 completed success (3/3)
+
+Stage Summary:
+- Livré : enveloppe de production complète (auth JWT REST+WS, CORS strict, rate limit IA, /metrics Prometheus, Docker AI dédié + compose durci, page login + E2E) — backend démarre fail-fast en prod sans secret, comportement dev historique inchangé sans config
+- Décisions : auth opt-in (compat CI/dev), bcrypt ou clair (warn), /metrics public, rate limit désactivable par config, torch non embarqué par défaut dans l'image AI
+- Dépôt : github.com/assihervey-coder/YahriaCad main = e4a8065, CI verte
+- Restant pour « prod-ready » complet : TLS/HTTPS (reverse proxy documenté), dashboards Grafana à brancher, PAT GitHub toujours à révoquer
