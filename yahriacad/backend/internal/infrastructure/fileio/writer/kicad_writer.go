@@ -249,12 +249,33 @@ func (e *kicadEmitter) pad(p domainlayout.Pad) {
 	e.printf(" (layers %s))\n", e.padLayers(p))
 }
 
+// footprintLayer déduit le côté d'une empreinte de ses pastilles : une
+// empreinte purement SMD dont toutes les pastilles sont sur le dernier
+// cuivre est une empreinte arrière (B.Cu). Les empreintes à pastilles
+// traversantes ou mixtes restent écrites côté F.Cu — le domaine ne porte
+// pas le côté de l'empreinte, ce chemin est le plus fidèle réversible.
+func (e *kicadEmitter) footprintLayer(c *domainlayout.PlacedComponent) string {
+	last := e.layerCnt - 1
+	smd := false
+	for i := range c.Footprint.Pads {
+		p := &c.Footprint.Pads[i]
+		if p.Layer < 0 || p.Layer == 0 {
+			return "F.Cu"
+		}
+		smd = true
+	}
+	if smd && last > 0 {
+		return "B.Cu"
+	}
+	return "F.Cu"
+}
+
 // footprints emits every placed component.
 func (e *kicadEmitter) footprints(b *domainlayout.Board) {
 	for i := range b.Components {
 		c := &b.Components[i]
 		e.printf("\t(footprint %q\n", c.Footprint.Name)
-		e.printf("\t\t(layer %q)\n", "F.Cu")
+		e.printf("\t\t(layer %q)\n", e.footprintLayer(c))
 		e.printf("\t\t(uuid %q)\n", kicadUUID())
 		e.printf("\t\t(at %s %s", fm(c.X), fm(c.Y))
 		if c.Rotation != 0 {

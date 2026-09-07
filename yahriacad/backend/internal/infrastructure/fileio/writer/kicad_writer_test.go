@@ -124,6 +124,9 @@ func TestKicadWriterRoundTrip(t *testing.T) {
 					if gp.Net != op.Net {
 						t.Errorf("%s.%s : net attendu %q, obtenu %q", orig.Ref, op.Name, op.Net, gp.Net)
 					}
+					if gp.Layer != op.Layer {
+						t.Errorf("%s.%s : couche attendue %d, obtenue %d", orig.Ref, op.Name, op.Layer, gp.Layer)
+					}
 				}
 				break
 			}
@@ -165,5 +168,80 @@ func TestKicadWriterRoundTrip(t *testing.T) {
 	v := &rt.Vias[0]
 	if v.X != 20 || v.Y != 10 || v.Diameter != 0.6 || v.Drill != 0.3 || v.Net != "SIG" {
 		t.Errorf("via modifié : %+v", v)
+	}
+}
+
+// TestKicadWriterBackSideFootprint vérifie qu'une empreinte purement SMD
+// dont les pastilles sont sur le dernier cuivre est écrite côté B.Cu, et
+// qu'un aller-retour écriture→lecture conserve le côté des pastilles.
+func TestKicadWriterBackSideFootprint(t *testing.T) {
+	board, err := domainlayout.NewBoard(40, 30, 2)
+	if err != nil {
+		t.Fatalf("NewBoard : %v", err)
+	}
+	backFP := domainlayout.Footprint{
+		Name: "SolderJumper-2", BodyWidthMM: 2, BodyHeightMM: 1.5, HeightMM: 0.5,
+		Pads: []domainlayout.Pad{
+			{Name: "1", Shape: domainlayout.ShapeRect, X: -0.725, Y: 0, Width: 0.3, Height: 0.3, Layer: 1, Net: "VCC"},
+			{Name: "2", Shape: domainlayout.ShapeRect, X: 0.725, Y: 0, Width: 0.3, Height: 0.3, Layer: 1, Net: "GND"},
+		},
+	}
+	frontFP := domainlayout.Footprint{
+		Name: "0603", BodyWidthMM: 2, BodyHeightMM: 1.2, HeightMM: 0.5,
+		Pads: []domainlayout.Pad{
+			{Name: "1", Shape: domainlayout.ShapeRect, X: -0.8, Y: 0, Width: 0.6, Height: 0.8, Layer: 0, Net: "VCC"},
+		},
+	}
+	for _, c := range []domainlayout.PlacedComponent{
+		{Ref: "JP1", Footprint: backFP, X: 20, Y: 15},
+		{Ref: "R1", Footprint: frontFP, X: 32, Y: 20},
+	} {
+		if err := board.AddComponent(c); err != nil {
+			t.Fatalf("AddComponent %s : %v", c.Ref, err)
+		}
+	}
+	board.Tracks = append(board.Tracks, domainlayout.Track{
+		Net: "VCC", Layer: 1, Width: 0.25,
+		Points: []domainlayout.TrackPoint{{X: 21, Y: 15}, {X: 31.2, Y: 20}},
+	})
+
+	w := NewKicadWriter()
+	out := t.TempDir()
+	path, err := w.Write(board, "Carte Back-Side", out)
+	if err != nil {
+		t.Fatalf("Write : %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("lecture : %v", err)
+	}
+	s := string(data)
+	if !strings.Contains(s, `(layer "B.Cu")`) {
+		t.Errorf("empreinte arrière JP1 non écrite en B.Cu :\n%s", s)
+	}
+	if !strings.Contains(s, `(layers "B.Cu" "B.Paste" "B.Mask")`) {
+		t.Errorf("pastilles arrière sans liste B.Cu/B.Paste/B.Mask")
+	}
+
+	// aller-retour : la relecture conserve le côté des pastilles et des
+	// empreintes (pastille F.Cu explicite dans une empreinte F.Cu).
+	res, err := reader.NewRegistry(slog.Default()).Read(path)
+	if err != nil {
+		t.Fatalf("relecture : %v", err)
+	}
+	for i := range res.Board.Components {
+		c := &res.Board.Components[i]
+		switch c.Ref {
+		case "JP1":
+			for _, p := range c.Footprint.Pads {
+				if p.Layer != 1 {
+					t.Errorf("JP1.%s : couche %d, attendu 1 (B.Cu)", p.Name, p.Layer)
+				}
+			}
+		case "R1":
+			if c.Footprint.Pads[0].Layer != 0 {
+				t.Errorf("R1.1 : couche %d, attendu 0 (F.Cu)", c.Footprint.Pads[0].Layer)
+			}
+		}
 	}
 }

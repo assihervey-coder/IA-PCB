@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	schematicapp "github.com/assihervey-coder/IA-PCB/backend/internal/application/schematic"
+	domainlayout "github.com/assihervey-coder/IA-PCB/backend/internal/domain/layout"
 )
 
 // kicad10Fixture : extrait minimal au format KiCad 10 (version 20260206) —
@@ -495,5 +496,83 @@ func TestKiCadRealBoardsLocal(t *testing.T) {
 				t.Fatal("netlist vide : aucune connexion pastille")
 			}
 		})
+	}
+}
+
+// kicadBackSideFixture : empreintes dont le côté des pastilles SMD est
+// explicite et contraire/indépendant du côté de l'empreinte — jumpers,
+// points de test, ou fichier réécrit par un outil tiers (empreinte F.Cu
+// avec pastilles B.Cu). Le côté explicite des pastilles doit gagner.
+const kicadBackSideFixture = `(kicad_pcb
+	(version 20241229)
+	(generator "pcbnew")
+	(generator_version "9.0")
+	(layers
+		(0 "F.Cu" signal)
+		(31 "B.Cu" signal)
+	)
+	(net 1 "VCC")
+	(net 2 "GND")
+	(footprint "Jumper:SolderJumper-2"
+		(layer "B.Cu")
+		(at 20 20)
+		(property "Reference" "JP1")
+		(property "Value" "JUMPER")
+		(pad "1" smd rect
+			(at -0.725 0)
+			(size 0.3 0.3)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(net 1 "VCC")
+		)
+		(pad "2" smd rect
+			(at 0.725 0)
+			(size 0.3 0.3)
+			(layers "F.Cu" "F.Paste" "F.Mask")
+			(net 2 "GND")
+		)
+	)
+	(footprint "TestPoint:TP"
+		(layer "F.Cu")
+		(at 30 20)
+		(property "Reference" "TP1")
+		(property "Value" "TEST")
+		(pad "1" smd rect
+			(at 0 0)
+			(size 0.5 0.5)
+			(layers "B.Cu" "B.Paste" "B.Mask")
+			(net 1 "VCC")
+		)
+	)
+)`
+
+func TestKiCadBackSideSMDPads(t *testing.T) {
+	res := readFixture(t, kicadBackSideFixture)
+	if len(res.Board.Components) != 2 {
+		t.Fatalf("composants : %d, attendu 2", len(res.Board.Components))
+	}
+	var jpPads, tpPads []domainlayout.Pad
+	for i := range res.Board.Components {
+		c := &res.Board.Components[i]
+		switch c.Ref {
+		case "JP1":
+			jpPads = c.Footprint.Pads
+		case "TP1":
+			tpPads = c.Footprint.Pads
+		}
+	}
+	if len(jpPads) != 2 || len(tpPads) != 1 {
+		t.Fatalf("pads attendus JP1=2 TP1=1, obtenus JP1=%d TP1=%d", len(jpPads), len(tpPads))
+	}
+	// JP1 (empreinte B.Cu) : pad 1 explicite B.Cu → dernier cuivre ;
+	// pad 2 explicite F.Cu → cuivre 0, malgré l'empreinte arrière.
+	if jpPads[0].Layer != 1 {
+		t.Errorf("JP1 pad 1 : couche %d, attendu 1 (B.Cu explicite)", jpPads[0].Layer)
+	}
+	if jpPads[1].Layer != 0 {
+		t.Errorf("JP1 pad 2 : couche %d, attendu 0 (F.Cu explicite)", jpPads[1].Layer)
+	}
+	// TP1 (empreinte F.Cu) : pad explicite B.Cu → dernier cuivre.
+	if tpPads[0].Layer != 1 {
+		t.Errorf("TP1 pad 1 : couche %d, attendu 1 (B.Cu explicite)", tpPads[0].Layer)
 	}
 }

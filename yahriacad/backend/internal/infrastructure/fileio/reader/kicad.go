@@ -642,9 +642,22 @@ func (st *kicadParseState) readFootprint(fp *sNode) {
 		if layersNode != nil && layersNode.hasAtomIn("*.Cu") {
 			thru = true
 		}
+		// Pastille SMD : la liste de couches explicite (F.Cu / B.Cu)
+		// prime sur le côté de l'empreinte — pcbnew autorise une
+		// pastille sur le cuivre opposé (jumpers, points de test) et
+		// le round-trip doit conserver ce côté même si l'empreinte a
+		// été réécrite de l'autre côté du plateau.
+		explicitFront := layersNode != nil && layersNode.hasAtomIn("F.Cu") &&
+			!layersNode.hasAtomIn("B.Cu")
+		explicitBack := layersNode != nil && layersNode.hasAtomIn("B.Cu") &&
+			!layersNode.hasAtomIn("F.Cu")
 		switch {
 		case thru:
 			pad.Layer = -1
+		case explicitBack:
+			pad.Layer = lastLayer
+		case explicitFront:
+			pad.Layer = 0
 		case !kf.front:
 			pad.Layer = lastLayer
 		default:
