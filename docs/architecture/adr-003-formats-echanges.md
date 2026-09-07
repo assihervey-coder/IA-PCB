@@ -2,7 +2,7 @@
 
 - **Statut :** Accepté
 - **Date :** 2025
-- **Décideurs :** équipe KidCAD-Pro-IA
+- **Décideurs :** équipe YahriaCad
 
 ## Contexte
 
@@ -26,7 +26,7 @@ Contraintes réelles :
 ### 1. Transport temps réel : socket.io + JSON typé
 
 Le contrat d'échange est porté par **socket.io 4.8** avec des charges **JSON typées** par
-le module unique `src/lib/kidcad/shared/types.ts` (importé par le client, l'API REST et le
+le module unique `src/lib/yahriacad/shared/types.ts` (importé par le client, l'API REST et le
 service IA — une seule source de vérité, vérifiée par le compilateur TypeScript à chaque
 build, là où protobuf aurait été vérifié par `protoc`).
 
@@ -63,7 +63,7 @@ persisté tel quel par Prisma/SQLite, et disponible via
 | `bom` | CSV | Nomenclature : référence, valeur, empreinte, quantité |
 | `step` | STEP AP214 simplifié | Solides « boîtes » de la carte et des composants (pour insertion mécanique) |
 | `stl` | STL | Maillage triangulé de la plaque (impression 3D / vérification) |
-| `json` | JSON natif | Design complet KidCAD |
+| `json` | JSON natif | Design complet YahriaCad |
 | `netlist-kicad` | S-expression | Netlist KiCad ré-exportée depuis le schéma |
 
 ## Conséquences

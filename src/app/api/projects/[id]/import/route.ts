@@ -3,9 +3,9 @@
  * { format: "kicad" | "json", content: string }
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { projectRepo } from '@/lib/kidcad/infrastructure/persistence/sql/project_repo'
-import { applyNetlistImport, importKicadNetlist } from '@/lib/kidcad/application/schematic/import'
-import { createLogger } from '@/lib/kidcad/pkg/logger'
+import { projectRepo } from '@/lib/yahriacad/infrastructure/persistence/sql/project_repo'
+import { applyNetlistImport, importKicadNetlist } from '@/lib/yahriacad/application/schematic/import'
+import { createLogger } from '@/lib/yahriacad/pkg/logger'
 
 const log = createLogger('api:import')
 

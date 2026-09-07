@@ -1,8 +1,8 @@
 openapi: 3.0.3
 info:
-  title: KidCAD-Pro-IA API
+  title: YahriaCad API
   description: |
-    API REST de KidCAD-Pro-IA, application de CAO électronique (schéma, PCB,
+    API REST de YahriaCad, application de CAO électronique (schéma, PCB,
     placement/routage IA, DRC/ERC, exports Gerber/STEP/STL/BOM).
 
     Tous les chemins sont préfixés par `/api`. Le temps réel (jobs IA) est assuré
@@ -12,7 +12,7 @@ info:
 servers:
   - url: http://localhost:3000/api
     description: Développement local
-  - url: https://kidcad.example.com/api
+  - url: https://yahriacad.example.com/api
     description: Production (exemple)
 tags:
   - name: Projects
@@ -285,7 +285,7 @@ paths:
         - `bom` : CSV (référence, valeur, empreinte, quantité)
         - `step` : STEP AP214 simplifié (boîtes)
         - `stl` : maillage de la plaque
-        - `json` : design natif KidCAD
+        - `json` : design natif YahriaCad
         - `netlist-kicad` : netlist KiCad (s-expression)
       operationId: exportDesign
       responses:

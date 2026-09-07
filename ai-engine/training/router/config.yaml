@@ -1,5 +1,5 @@
 # =============================================================================
-# KidCAD-Pro-IA — Hyperparamètres d'entraînement : ROUTEUR (PPO)
+# YahriaCad — Hyperparamètres d'entraînement : ROUTEUR (PPO)
 # Pipeline R&D Python — NON requis pour l'inférence (moteur TS déterministe).
 # Sortie attendue : training/router/model_v1.pt (voir ai-engine/README.md)
 # =============================================================================

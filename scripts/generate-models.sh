@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # =============================================================================
-# KidCAD-Pro-IA — Entraînement RL OPTIONNEL (pipeline R&D Python)
+# YahriaCad — Entraînement RL OPTIONNEL (pipeline R&D Python)
 # Usage : ./scripts/generate-models.sh
 # Crée un venv Python, installe ai-engine/requirements.txt (torch, numpy, tqdm,
 # matplotlib, tensorboard), puis lance ai-engine/train.py s'il existe.
 # ⚠️  LES MODÈLES .pt NE SONT PAS REQUIS POUR L'APPLICATION : l'inférence en
 #     production utilise le moteur TypeScript déterministe embarqué
-#     (A* + recuit simulé, src/lib/kidcad/ai-engine). Ce script ne sert qu'à la
+#     (A* + recuit simulé, src/lib/yahriacad/ai-engine). Ce script ne sert qu'à la
 #     recherche (PPO + GNN, voir ai-engine/README.md).
 # =============================================================================
 set -euo pipefail

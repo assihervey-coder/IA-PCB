@@ -1,4 +1,4 @@
-# Dépendances Python du pipeline R&D (entraînement RL) — KidCAD-Pro-IA
+# Dépendances Python du pipeline R&D (entraînement RL) — YahriaCad
 # ⚠️ Non requises pour faire tourner l'application (inférence = moteur TS embarqué).
 torch>=2.2
 numpy

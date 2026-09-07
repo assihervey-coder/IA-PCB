@@ -3,8 +3,8 @@
  * infrastructure/api/rest/project_handler.go (équivalent route handler Next.js).
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { projectRepo } from '@/lib/kidcad/infrastructure/persistence/sql/project_repo'
-import { createLogger } from '@/lib/kidcad/pkg/logger'
+import { projectRepo } from '@/lib/yahriacad/infrastructure/persistence/sql/project_repo'
+import { createLogger } from '@/lib/yahriacad/pkg/logger'
 
 const log = createLogger('api:projects')
 

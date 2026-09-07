@@ -1,17 +1,17 @@
 /**
- * tests/integration/engine.test.ts — Tests d'intégration du moteur IA KidCAD.
+ * tests/integration/engine.test.ts — Tests d'intégration du moteur IA YahriaCad.
  * Exécution : bun test tests/integration/engine.test.ts
  */
 import { describe, test, expect } from 'bun:test'
-import { buildLedChaserDesign } from '../../src/lib/kidcad/library/samples/led-chaser'
-import { runPlacement, runRouting, runOptimization, syncNetlist, designStats } from '../../src/lib/kidcad/ai-engine'
-import { runDrc } from '../../src/lib/kidcad/application/verification/drc'
-import { runErc } from '../../src/lib/kidcad/application/verification/erc'
-import { generateBom } from '../../src/lib/kidcad/application/export/bom'
-import { generateKicadNetlist } from '../../src/lib/kidcad/application/export/netlist'
-import { generateStl } from '../../src/lib/kidcad/application/export/stl'
-import { generateStep } from '../../src/lib/kidcad/application/export/step'
-import { importKicadNetlist } from '../../src/lib/kidcad/application/schematic/import'
+import { buildLedChaserDesign } from '../../src/lib/yahriacad/library/samples/led-chaser'
+import { runPlacement, runRouting, runOptimization, syncNetlist, designStats } from '../../src/lib/yahriacad/ai-engine'
+import { runDrc } from '../../src/lib/yahriacad/application/verification/drc'
+import { runErc } from '../../src/lib/yahriacad/application/verification/erc'
+import { generateBom } from '../../src/lib/yahriacad/application/export/bom'
+import { generateKicadNetlist } from '../../src/lib/yahriacad/application/export/netlist'
+import { generateStl } from '../../src/lib/yahriacad/application/export/stl'
+import { generateStep } from '../../src/lib/yahriacad/application/export/step'
+import { importKicadNetlist } from '../../src/lib/yahriacad/application/schematic/import'
 import { readFileSync } from 'node:fs'
 
 describe('Netlist', () => {
@@ -111,7 +111,7 @@ describe('Exports', () => {
 
   test('STL et STEP non vides', () => {
     const design = buildLedChaserDesign('t10')
-    expect(generateStl(design).startsWith('solid kidcad_')).toBe(true)
+    expect(generateStl(design).startsWith('solid yahriacad_')).toBe(true)
     const step = generateStep(design)
     expect(step).toContain('ISO-10303-21;')
     expect(step).toContain('MANIFOLD_SOLID_BREP')

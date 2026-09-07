@@ -1,4 +1,4 @@
-"""Agent PPO (Proximal Policy Optimization) — pipeline R&D KidCAD-Pro-IA.
+"""Agent PPO (Proximal Policy Optimization) — pipeline R&D YahriaCad.
 
 Actor-critic MLP sur observations multi-canaux (5 x H x W) de l'environnement
 PCB. Implémente : collecte rollouts, GAE(lambda), clipping d'objectif, epochs

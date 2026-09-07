@@ -11,12 +11,12 @@
     11→        "math"
     12→        "time"
     13→
-    14→        apperrors "github.com/kidcad/kidcad-pro-ia/backend/internal/application"
-    15→        domainconstraints "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/constraints"
-    16→        domainlayout "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/layout"
-    17→        domainproject "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/project"
-    18→        domainschematic "github.com/kidcad/kidcad-pro-ia/backend/internal/domain/schematic"
-    19→        "github.com/kidcad/kidcad-pro-ia/backend/internal/pkg/geometry"
+    14→        apperrors "github.com/assihervey-coder/IA-PCB/backend/internal/application"
+    15→        domainconstraints "github.com/assihervey-coder/IA-PCB/backend/internal/domain/constraints"
+    16→        domainlayout "github.com/assihervey-coder/IA-PCB/backend/internal/domain/layout"
+    17→        domainproject "github.com/assihervey-coder/IA-PCB/backend/internal/domain/project"
+    18→        domainschematic "github.com/assihervey-coder/IA-PCB/backend/internal/domain/schematic"
+    19→        "github.com/assihervey-coder/IA-PCB/backend/internal/pkg/geometry"
     20→)
     21→
     22→// DRC violation codes.

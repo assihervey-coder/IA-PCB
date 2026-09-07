@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# KidCAD-Pro-IA — Build de production de tout le monorepo
+# YahriaCad — Build de production de tout le monorepo
 # Usage : ./scripts/build-all.sh
 # 1) Lint ESLint
 # 2) Build Next.js (output standalone)

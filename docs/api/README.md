@@ -1,6 +1,6 @@
-# API KidCAD-Pro-IA
+# API YahriaCad
 
-Cette documentation décrit l'API REST de KidCAD-Pro-IA.
+Cette documentation décrit l'API REST de YahriaCad.
 
 ## Spécification
 
@@ -20,7 +20,7 @@ Pour la lire et la tester :
 | Environnement | Base URL |
 |---|---|
 | Développement | `http://localhost:3000/api` |
-| Production | `https://kidcad.example.com/api` (voir `configs/production/appsettings.prod.json`) |
+| Production | `https://yahriacad.example.com/api` (voir `configs/production/appsettings.prod.json`) |
 
 Tous les chemins listés dans la spec sont donc relatifs à `/api`
 (ex. `GET {baseUrl}/projects/{id}`).

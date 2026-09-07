@@ -1,9 +1,9 @@
 # R&D — Entraînement RL pour le routage/placement PCB (PyTorch)
 
-> ⚠️ **Ce dossier n'est PAS requis pour utiliser KidCAD-Pro-IA.**
+> ⚠️ **Ce dossier n'est PAS requis pour utiliser YahriaCad.**
 > L'application en production utilise un **moteur d'inférence TypeScript
 > déterministe** embarqué (A\* maze-routing 2 couches + recuit simulé +
-> rip-up & reroute, voir `src/lib/kidcad/ai-engine/`).
+> rip-up & reroute, voir `src/lib/yahriacad/ai-engine/`).
 > Ce dossier est le **pipeline de recherche & développement** (référence) pour
 > l'entraînement de politiques de reinforcement learning qui, un jour, pourraient
 > remplacer ou guider les heuristiques TS. Voir

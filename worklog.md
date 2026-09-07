@@ -1,7 +1,7 @@
 ---
 Task ID: 1
 Agent: Super Z (main)
-Task: Tag v0.1.0, CI GitHub Actions, README, routage multi-couches + plans de masse, autoroutage interactif + classes de nets, intégration RL PyTorch, CRDT collaboratif + undo/redo persistant, endpoint démo nightmare + Doctor branché au moteur RL (repo kidcad-pro-ia → github.com/assihervey-coder/IA-PCB)
+Task: Tag v0.1.0, CI GitHub Actions, README, routage multi-couches + plans de masse, autoroutage interactif + classes de nets, intégration RL PyTorch, CRDT collaboratif + undo/redo persistant, endpoint démo nightmare + Doctor branché au moteur RL (repo yahriacad → github.com/assihervey-coder/IA-PCB)
 
 Work Log:
 - Tag annoté v0.1.0 créé sur 7612c75 (premier jet) et poussé
@@ -24,7 +24,7 @@ Stage Summary:
 ---
 Task ID: 2
 Agent: Super Z (main)
-Task: Analyse état vs vision + éditeur CRDT frontend + calcul d'impédance différentielle par classe de nets (repo kidcad-pro-ia → github.com/assihervey-coder/IA-PCB)
+Task: Analyse état vs vision + éditeur CRDT frontend + calcul d'impédance différentielle par classe de nets (repo yahriacad → github.com/assihervey-coder/IA-PCB)
 
 Work Log:
 - Analyse complète : arborescence vision 100% implémentée + extras (arena/magic/doctor/dfm/timemachine/stats) ; tag v0.1.0, CI, README badges, pours, netclasses, CRDT backend, démo nightmare, Doctor→RL déjà livrés au Task 1

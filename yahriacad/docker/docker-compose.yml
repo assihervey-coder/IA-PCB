@@ -1,0 +1,111 @@
+# ==============================================================
+# YahriaCad — stack Docker complète (développement / démo)
+#
+# Usage :
+#   docker compose -f docker/docker-compose.yml up -d --build
+#
+# Services :
+#   postgres   : PostgreSQL 16 (persistance des projets)
+#   ai-engine  : moteur IA Python/gRPC (port interne 50051)
+#   backend    : serveur Go REST + WebSocket (8080)
+#   frontend   : Next.js SSR (3000)
+#
+# Remarque : un reverse-proxy frontal optionnel (configs/production/nginx.conf)
+# peut être ajouté en amont pour centraliser TLS / gzip / WebSocket.
+# ==============================================================
+
+name: yahriacad
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: yahriacad-postgres
+    environment:
+      POSTGRES_USER: yahriacad
+      POSTGRES_PASSWORD: yahriacad
+      POSTGRES_DB: yahriacad
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yahriacad -d yahriacad"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - yahriacad
+
+  ai-engine:
+    image: python:3.11-slim
+    container_name: yahriacad-ai-engine
+    working_dir: /app
+    # Le code du moteur (ai-engine/) et les stubs gRPC générés
+    # (shared/gen/python) sont montés, jamais copiés : itération rapide.
+    volumes:
+      - ./ai-engine:/app
+      - ./shared:/repo/shared:ro
+    environment:
+      YAHRIACAD_AI_PORT: "50051"
+    # Dépendances installées au démarrage (image de base générique volontaire) ;
+    # PYTHONPATH expose le paquet ai-engine ET les stubs partagés (pcb_pb2*),
+    # conformément au contrat §6 (pas de stubs dupliqués).
+    command: >
+      bash -c "pip install --no-cache-dir -r requirements.txt &&
+               PYTHONPATH=/app:/repo/shared/gen/python
+               python cmd/ai-server/main.py --port 50051"
+    expose:
+      - "50051"
+    networks:
+      - yahriacad
+
+  backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: yahriacad-backend:latest
+    container_name: yahriacad-backend
+    environment:
+      YAHRIACAD_DB_URL: postgres://yahriacad:yahriacad@postgres:5432/yahriacad?sslmode=disable
+      YAHRIACAD_AI_ADDR: ai-engine:50051
+      YAHRIACAD_HTTP_PORT: "8080"
+      YAHRIACAD_LOG_LEVEL: info
+      YAHRIACAD_DATA_DIR: /data
+      YAHRIACAD_ALLOWED_ORIGINS: http://localhost:3000
+    ports:
+      - "8080:8080"
+    volumes:
+      - backenddata:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ai-engine:
+        condition: service_started
+    # Pas de healthcheck Docker ici : l'image distroless ne contient ni wget,
+    # ni curl, ni shell. Utiliser GET http://localhost:8080/healthz côté
+    # orchestrateur (k8s liveness/readiness) pour sonder le service.
+    networks:
+      - yahriacad
+
+  frontend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+    image: yahriacad-frontend:latest
+    container_name: yahriacad-frontend
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8080/api/v1
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    networks:
+      - yahriacad
+
+volumes:
+  pgdata:
+  backenddata:
+
+networks:
+  yahriacad:
+    driver: bridge

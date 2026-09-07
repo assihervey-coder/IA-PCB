@@ -1,0 +1,197 @@
+// ==============================================================
+// YahriaCad — contrat gRPC partagé
+// Backend (Go) <-> Moteur IA (Python)
+//
+// Génération :
+//   Python : python3 -m grpc_tools.protoc -I shared/types \
+//              --python_out=shared/gen/python --grpc_python_out=shared/gen/python shared/types/pcb.proto
+//   Go     : protoc -I shared/types \
+//              --go_out=module=github.com/assihervey-coder/IA-PCB:shared/gen/go \
+//              --go-grpc_out=module=github.com/assihervey-coder/IA-PCB:shared/gen/go shared/types/pcb.proto
+// ==============================================================
+
+syntax = "proto3";
+
+package yahriacad.pcb.v1;
+
+option go_package = "github.com/assihervey-coder/IA-PCB/shared/gen/go/pcbv1;pcbv1";
+
+// --------------------------------------------------------------
+// Géométrie
+// --------------------------------------------------------------
+
+// Point en millimètres, origine en coin haut-gauche de la carte.
+message Point {
+  double x = 1;
+  double y = 2;
+}
+
+// Boîte englobante alignée sur les axes (mm).
+message BBox {
+  double min_x = 1;
+  double min_y = 2;
+  double max_x = 3;
+  double max_y = 4;
+}
+
+// Référence d'une pastille (pad) : composant + broche + géométrie.
+message PadRef {
+  string component_ref = 1; // ex. "R1"
+  string pad_name       = 2; // ex. "1"
+  Point  position       = 3; // position absolue sur la carte (mm)
+  int32  layer          = 4; // indice de couche (0 = F.Cu, layer_count-1 = B.Cu)
+  double width_mm       = 5;
+  double height_mm      = 6;
+  double rotation_deg   = 7;
+}
+
+// Point d'une piste : position + couche.
+message TrackPoint {
+  Point position = 1;
+  int32 layer    = 2;
+}
+
+// Segment de piste entre deux points (même couche).
+message TrackSegment {
+  TrackPoint a         = 1;
+  TrackPoint b         = 2;
+  double width_mm      = 3;
+}
+
+// Via reliant deux couches.
+message Via {
+  Point  position     = 1;
+  int32  from_layer   = 2;
+  int32  to_layer     = 3;
+  double diameter_mm  = 4;
+  double drill_mm     = 5;
+}
+
+// --------------------------------------------------------------
+// Carte
+// --------------------------------------------------------------
+
+// Spécification physique de la carte.
+message BoardSpec {
+  double width_mm            = 1;
+  double height_mm           = 2;
+  int32  layer_count         = 3;
+  double grid_resolution_mm  = 4; // résolution de la grille de routage (ex. 0.25)
+  repeated string layer_names = 5; // ex. ["F.Cu", "B.Cu"]
+}
+
+// Composant avec empreinte et position (placement).
+message ComponentSpec {
+  string ref          = 1;  // ex. "U1"
+  string footprint    = 2;  // ex. "SOIC-8_3.9x4.9mm_P1.27mm"
+  Point  position     = 3;
+  double rotation_deg = 4;
+  bool   fixed        = 5;  // non déplaçable par l'IA
+  BBox   bbox_mm      = 6;  // empreinte orientée, centrée sur position
+  double height_mm    = 7;  // hauteur 3D (export STEP/STL)
+}
+
+// Net électrique : liste de pads connectés + contraintes.
+message NetSpec {
+  string name               = 1; // ex. "GND"
+  string net_class          = 2; // ex. "default", "power"
+  repeated PadRef pads      = 3;
+  double min_track_width_mm = 4;
+  double clearance_mm       = 5;
+}
+
+// --------------------------------------------------------------
+// Requêtes et résultats
+// --------------------------------------------------------------
+
+// Placement automatique des composants.
+message PlacementRequest {
+  BoardSpec board                 = 1;
+  repeated ComponentSpec components = 2;
+  string strategy                 = 3; // "rl" (modèle entraîné) | "heuristic" (recuit simulé)
+}
+
+message PlacementResult {
+  repeated ComponentSpec placed = 1;
+  double total_wirelength_mm    = 2; // HPWL total obtenu
+  double score                  = 3; // score global de la solution
+  string strategy               = 4; // stratégie réellement utilisée
+}
+
+// Routage automatique (board complet, filtrable par nets).
+message RouteRequest {
+  BoardSpec board                = 1;
+  repeated NetSpec nets          = 2;
+  repeated ComponentSpec placed  = 3;
+  string strategy                = 4; // "rl" | "astar"
+  repeated string net_filter     = 5; // vide = tous les nets
+}
+
+// Résultat de routage d'un net.
+message RouteNetResult {
+  string net                    = 1;
+  repeated TrackSegment segments = 2;
+  repeated Via vias             = 3;
+  double length_mm              = 4;
+  bool   completed              = 5;  // tous les pads reliés
+  int32  drc_violations         = 6;  // violations détectées en fin de routage
+}
+
+// Optimisation post-routage (longueur, vias, DRC).
+message OptimizeRequest {
+  BoardSpec board                 = 1;
+  repeated NetSpec nets           = 2;
+  repeated RouteNetResult routes  = 3;
+  repeated string objectives      = 4; // ["length", "vias", "drc"]
+}
+
+// --------------------------------------------------------------
+// Progression temps réel (streaming)
+// --------------------------------------------------------------
+
+// Événement de progression émis pendant le routage / l'optimisation.
+// Convention : un événement par net terminé (partial renseigné),
+// événement final avec done=true.
+message ProgressEvent {
+  string job_id        = 1;
+  string stage         = 2; // "route" | "optimize"
+  string current_net   = 3;
+  float  percent       = 4; // 0..100
+  string message       = 5;
+  RouteNetResult partial = 6; // résultat du net venant de se terminer
+  bool   done          = 7;
+  string error         = 8;  // non vide = échec du job
+}
+
+// --------------------------------------------------------------
+// Santé du service
+// --------------------------------------------------------------
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status       = 1; // "ok" | "degraded"
+  string version      = 2;
+  string device       = 3; // "cpu" | "cuda"
+  bool   model_loaded = 4; // modèle RL chargé (sinon repli A*/heuristique)
+}
+
+// --------------------------------------------------------------
+// Service IA exposé par ai-engine (Python) et consommé par le
+// backend Go via infrastructure/ai/grpc_client.go
+// --------------------------------------------------------------
+
+service AIRouterService {
+  // Vérifie la disponibilité et la configuration du moteur.
+  rpc GetHealth(HealthRequest) returns (HealthResponse);
+
+  // Placement automatique des composants (appel synchrone).
+  rpc PlanPlacement(PlacementRequest) returns (PlacementResult);
+
+  // Routage automatique : un ProgressEvent par net terminé,
+  // puis un événement final done=true.
+  rpc RouteBoard(RouteRequest) returns (stream ProgressEvent);
+
+  // Optimisation post-routage (rip-up & reroute ciblé, réduction de vias).
+  rpc OptimizeRoutes(OptimizeRequest) returns (stream ProgressEvent);
+}

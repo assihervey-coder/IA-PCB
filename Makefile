@@ -1,5 +1,5 @@
 # =============================================================================
-# KidCAD-Pro-IA — Makefile
+# YahriaCad — Makefile
 # Aide : make help
 # =============================================================================
 
@@ -7,7 +7,7 @@
 
 # --- Défaut : aide ------------------------------------------------------------
 help: ## Affiche cette aide
-	@echo "KidCAD-Pro-IA — cibles disponibles :"
+	@echo "YahriaCad — cibles disponibles :"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 install: ## Installe les dépendances Bun (racine + mini-service IA)

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yahriacad-ai-engine"
+version = "0.1.0"
+description = "Moteur IA YahriaCad : placement et routage de PCB par apprentissage par renforcement (microservice gRPC)"
+readme = "ai-engine/README.md"
+requires-python = ">=3.10"
+license = { text = "AGPL-3.0" }
+dependencies = [
+  "numpy>=1.24",
+  "grpcio>=1.60",
+  "grpcio-tools>=1.60",
+  "protobuf>=4.25,<6",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+train = ["torch>=2.2"]
+dev = ["pytest>=7.4", "ruff>=0.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["ai-engine"]
+python_files = ["test_*.py", "bench_smoke.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Les noms PascalCase des RPC sont imposés par l'interface gRPC générée.
+"ai-engine/src/service.py" = ["N802"]
+# Convention PyTorch universelle : `import torch.nn.functional as F`.
+"ai-engine/src/models/*" = ["N806", "N812"]

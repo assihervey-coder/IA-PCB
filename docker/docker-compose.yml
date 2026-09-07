@@ -1,5 +1,5 @@
 # =============================================================================
-# KidCAD-Pro-IA — Docker Compose
+# YahriaCad — Docker Compose
 # Usage : docker compose -f docker/docker-compose.yml up --build
 #   app       → http://localhost:3000 (Next.js + Prisma/SQLite)
 #   ai-engine → http://localhost:3010 (service IA socket.io, Bun)
@@ -14,7 +14,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    container_name: kidcad-app
+    container_name: yahriacad-app
     ports:
       - "3000:3000"
     environment:
@@ -39,7 +39,7 @@ services:
       ai-engine:
         condition: service_healthy
     networks:
-      - kidcad
+      - yahriacad
 
   # ---------------------------------------------------------------------------
   # Mini-service IA : socket.io (Bun), port 3010 — jobs ai:place / ai:route
@@ -47,7 +47,7 @@ services:
   # ---------------------------------------------------------------------------
   ai-engine:
     image: oven/bun:1
-    container_name: kidcad-ai-engine
+    container_name: yahriacad-ai-engine
     working_dir: /srv/ai-engine
     command: bun run index.ts
     volumes:
@@ -69,7 +69,7 @@ services:
       start_period: 10s
       retries: 3
     networks:
-      - kidcad
+      - yahriacad
 
   # ---------------------------------------------------------------------------
   # OPTIONNEL — Reverse proxy nginx de production (configs/production/nginx.conf)
@@ -77,7 +77,7 @@ services:
   # ---------------------------------------------------------------------------
   # nginx:
   #   image: nginx:1.27-alpine
-  #   container_name: kidcad-nginx
+  #   container_name: yahriacad-nginx
   #   ports:
   #     - "80:80"
   #   volumes:
@@ -88,8 +88,8 @@ services:
   #     ai-engine:
   #       condition: service_healthy
   #   networks:
-  #     - kidcad
+  #     - yahriacad
 
 networks:
-  kidcad:
+  yahriacad:
     driver: bridge

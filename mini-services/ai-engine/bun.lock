@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "kidcad-ai-engine-service",
+      "name": "yahriacad-ai-engine-service",
       "dependencies": {
         "socket.io": "^4.8.3",
       },

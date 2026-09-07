@@ -1,6 +1,6 @@
 """Environnement PCB type Gymnasium — routage d'un net sur grille 2 couches.
 
-Pipeline R&D KidCAD-Pro-IA (référence PyTorch, NON requis en production :
+Pipeline R&D YahriaCad (référence PyTorch, NON requis en production :
 l'inférence de l'application utilise le moteur TypeScript déterministe).
 
 Grille : hauteur x largeur x 2 couches (F.Cu = 0, B.Cu = 1).

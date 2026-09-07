@@ -53,7 +53,7 @@ server.log
 # Skills directory
 /skills/
 
-# ---- KidCAD-Pro-IA : pipeline R&D Python (ai-engine/) ----
+# ---- YahriaCad : pipeline R&D Python (ai-engine/) ----
 # Données brutes / transformées (hors .gitkeep)
 ai-engine/data/raw/*
 !ai-engine/data/raw/.gitkeep
@@ -69,3 +69,5 @@ venv/
 .venv/
 ai-engine/training/**/logs/
 scripts/.bin/
+download/*.zip
+.cache/

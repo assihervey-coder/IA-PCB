@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# KidCAD-Pro-IA — Installation de l'environnement de développement
+# YahriaCad — Installation de l'environnement de développement
 # Usage : ./scripts/setup-dev.sh
 # Installe les dépendances Bun (racine + mini-services/ai-engine) puis pousse
 # le schéma Prisma vers SQLite (db/custom.db).

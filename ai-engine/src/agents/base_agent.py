@@ -1,4 +1,4 @@
-"""Classe abstraite de base pour les agents RL du pipeline KidCAD-Pro-IA.
+"""Classe abstraite de base pour les agents RL du pipeline YahriaCad.
 
 Tout agent (PPO aujourd'hui, autres demain) implémente :
   - ``select_action(obs, deterministic)`` : politique d'action ;

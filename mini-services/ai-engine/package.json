@@ -1,8 +1,8 @@
 {
-  "name": "kidcad-ai-engine-service",
+  "name": "yahriacad-ai-engine-service",
   "version": "1.0.0",
   "private": true,
-  "description": "KidCAD-Pro-IA — Microservice IA (socket.io, analogue gRPC) : placement, routage, optimisation",
+  "description": "YahriaCad — Microservice IA (socket.io, analogue gRPC) : placement, routage, optimisation",
   "scripts": {
     "dev": "bun --hot index.ts",
     "start": "bun index.ts"

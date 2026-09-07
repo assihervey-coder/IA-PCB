@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # =============================================================================
-# KidCAD-Pro-IA — Variante FRONTEND SEULE
+# YahriaCad — Variante FRONTEND SEULE
 # -----------------------------------------------------------------------------
 # Rôle : servir uniquement l'interface (Next.js standalone) derrière nginx, pour
 # les déploiements où l'API et le service IA tournent sur des hôtes séparés
@@ -8,7 +8,7 @@
 # Le build reste "standalone" Next.js (SSR/api inclus) mais nginx devant gère
 # TLS, gzip et cache statique ; la base SQLite et le service IA ne sont PAS
 # dans cette image.
-# Build : docker build -f docker/Dockerfile.frontend -t kidcad-frontend .
+# Build : docker build -f docker/Dockerfile.frontend -t yahriacad-frontend .
 # =============================================================================
 
 # --- Base : Bun 1 -------------------------------------------------------------

@@ -1,10 +1,10 @@
-# Architecture — KidCAD-Pro-IA
+# Architecture — YahriaCad
 
 > Dernière mise à jour : 2025. Vue d'ensemble technique de l'application.
 
 ## 1. Vue d'ensemble
 
-KidCAD-Pro-IA est un **monolithe modulaire Next.js 16** (App Router, TypeScript) accompagné
+YahriaCad est un **monolithe modulaire Next.js 16** (App Router, TypeScript) accompagné
 d'un **mini-service IA socket.io** autonome (Bun, port 3010). La persistance est assurée par
 **Prisma + SQLite** (`db/custom.db`). Le rendu 3D utilise **Three.js 0.185**.
 
@@ -17,10 +17,10 @@ flowchart LR
 
     subgraph App["Next.js (port 3000)"]
         REST["API REST — src/app/api (route handlers, DDD)"]
-        APP["src/lib/kidcad/application — cas d'usage"]
-        DOM["src/lib/kidcad/domain — entités & invariants"]
-        INFRA["src/lib/kidcad/infrastructure — exporters, sérialisation"]
-        AITS["src/lib/kidcad/ai-engine — moteur inférence TS"]
+        APP["src/lib/yahriacad/application — cas d'usage"]
+        DOM["src/lib/yahriacad/domain — entités & invariants"]
+        INFRA["src/lib/yahriacad/infrastructure — exporters, sérialisation"]
+        AITS["src/lib/yahriacad/ai-engine — moteur inférence TS"]
         PRISMA["Prisma ORM"]
     end
 
@@ -62,16 +62,16 @@ Points clés :
 
 ## 2. Architecture DDD
 
-Le backend Next.js suit une organisation **Domain-Driven Design** sous `src/lib/kidcad/` :
+Le backend Next.js suit une organisation **Domain-Driven Design** sous `src/lib/yahriacad/` :
 
 | Couche | Chemin | Responsabilité |
 |---|---|---|
-| **Domaine** | `src/lib/kidcad/domain/` | Entités et invariants purs : `project` (agrégat racine), `schematic` (composants, nets, bornes), `layout` (pads, traces, vias, zones), `constraints` (règles DRC/ERC). Aucune dépendance framework. |
-| **Application** | `src/lib/kidcad/application/` | Cas d'usage orchestration : `import` (netlist KiCad/JSON), `validate` (ERC), `place` (recuit simulé), `route` (A\* + rip-up & reroute), `optimize` (réduction de vias), `export` (Gerber/STEP/STL/BOM), `drc`, `erc`. |
-| **Infrastructure** | `src/lib/kidcad/infrastructure/` + `src/app/api/` | Adaptateurs : accès Prisma, sérialisation JSON, générateurs Gerber RS-274X / Excellon / STEP AP214 / STL / CSV, route handlers REST. |
-| **Pkg** | `src/lib/kidcad/pkg/` | Utilitaires transverses : `geometry` (distance, intersection, AABB), `logger`, `utils`. |
-| **Shared** | `src/lib/kidcad/shared/types.ts` | Types TypeScript partagés client/serveur (contrat d'échange unique, voir [ADR-003](./adr-003-formats-echanges.md)). |
-| **Library** | `src/lib/kidcad/library/` | Bibliothèques d'empreintes (0805, DIP-8, DIP-16…) et de symboles. |
+| **Domaine** | `src/lib/yahriacad/domain/` | Entités et invariants purs : `project` (agrégat racine), `schematic` (composants, nets, bornes), `layout` (pads, traces, vias, zones), `constraints` (règles DRC/ERC). Aucune dépendance framework. |
+| **Application** | `src/lib/yahriacad/application/` | Cas d'usage orchestration : `import` (netlist KiCad/JSON), `validate` (ERC), `place` (recuit simulé), `route` (A\* + rip-up & reroute), `optimize` (réduction de vias), `export` (Gerber/STEP/STL/BOM), `drc`, `erc`. |
+| **Infrastructure** | `src/lib/yahriacad/infrastructure/` + `src/app/api/` | Adaptateurs : accès Prisma, sérialisation JSON, générateurs Gerber RS-274X / Excellon / STEP AP214 / STL / CSV, route handlers REST. |
+| **Pkg** | `src/lib/yahriacad/pkg/` | Utilitaires transverses : `geometry` (distance, intersection, AABB), `logger`, `utils`. |
+| **Shared** | `src/lib/yahriacad/shared/types.ts` | Types TypeScript partagés client/serveur (contrat d'échange unique, voir [ADR-003](./adr-003-formats-echanges.md)). |
+| **Library** | `src/lib/yahriacad/library/` | Bibliothèques d'empreintes (0805, DIP-8, DIP-16…) et de symboles. |
 
 Le **mini-service IA** (`mini-services/ai-engine/`) est un service socket.io **Bun** autonome
 qui réutilise le même moteur TS : il joue le rôle du service gRPC prévu initialement.
@@ -123,13 +123,13 @@ documente la correspondance exacte, dossier par dossier :
 
 | Chemin d'origine (spécifié) | Chemin réel (implémentation) | Rôle |
 |---|---|---|
-| `backend/internal/domain` | `src/lib/kidcad/domain/` | Entités : `project`, `schematic`, `layout`, `constraints` |
-| `backend/internal/application` | `src/lib/kidcad/application/` | Cas d'usage : import, validate, place, route, optimize, export, drc, erc |
-| `backend/internal/infrastructure` | `src/lib/kidcad/infrastructure/` | Adaptateurs persistance/exports |
-| `backend/internal/pkg` | `src/lib/kidcad/pkg/` | Utilitaires : `geometry`, `logger`, `utils` |
+| `backend/internal/domain` | `src/lib/yahriacad/domain/` | Entités : `project`, `schematic`, `layout`, `constraints` |
+| `backend/internal/application` | `src/lib/yahriacad/application/` | Cas d'usage : import, validate, place, route, optimize, export, drc, erc |
+| `backend/internal/infrastructure` | `src/lib/yahriacad/infrastructure/` | Adaptateurs persistance/exports |
+| `backend/internal/pkg` | `src/lib/yahriacad/pkg/` | Utilitaires : `geometry`, `logger`, `utils` |
 | `backend/internal/server` (handlers HTTP) | `src/app/api/` (route handlers Next.js) | API REST `/api/projects`, `/api/footprints`, `/api/health` |
-| `frontend/` (SPA séparée) | `src/app/page.tsx` + `src/components/kidcad/` | UI mono-page (imposée par la sandbox) |
-| `proto/` + service gRPC | `src/lib/kidcad/shared/types.ts` + socket.io | Contrat d'échange JSON typé (voir ADR-003) |
+| `frontend/` (SPA séparée) | `src/app/page.tsx` + `src/components/yahriacad/` | UI mono-page (imposée par la sandbox) |
+| `proto/` + service gRPC | `src/lib/yahriacad/shared/types.ts` + socket.io | Contrat d'échange JSON typé (voir ADR-003) |
 | `ai-engine/` (gRPC serveur Python) | `mini-services/ai-engine/` (socket.io Bun :3010) | Service IA temps réel |
 | `ai-engine/` (entraînement RL) | `ai-engine/` (racine, Python/PyTorch) | R&D : `pcb_env`, PPO, GNN, benchmark |
 | `deploy/` | `docker/` + `configs/` + `Caddyfile` | Conteneurisation, reverse proxy, configuration |

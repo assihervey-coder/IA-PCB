@@ -1,4 +1,4 @@
-# Guide utilisateur — KidCAD-Pro-IA
+# Guide utilisateur — YahriaCad
 
 > Manuel complet de l'application : interface, éditeur de schéma, éditeur PCB, jobs IA,
 > vérifications DRC/ERC, imports/exports, raccourcis clavier.

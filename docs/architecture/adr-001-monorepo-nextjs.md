@@ -2,7 +2,7 @@
 
 - **Statut :** Accepté
 - **Date :** 2025
-- **Décideurs :** équipe KidCAD-Pro-IA
+- **Décideurs :** équipe YahriaCad
 
 ## Contexte
 
@@ -23,7 +23,7 @@ Nous remplaçons le duo backend Go + frontend séparé par un **monolithe modula
 Next.js 16 (App Router, TypeScript)** :
 
 - Les route handlers REST vivent sous `src/app/api` (Next.js API Routes) et délèguent
-  au cœur métier organisé en **DDD** sous `src/lib/kidcad/{domain,application,infrastructure,pkg,shared,library}`.
+  au cœur métier organisé en **DDD** sous `src/lib/yahriacad/{domain,application,infrastructure,pkg,shared,library}`.
 - Le mapping 1:1 avec l'arborescence Go est conservé (voir
   [architecture.md](./architecture.md#4-mapping-arborescence-dorigine--implémentation)).
 - Le microservice IA gRPC est remplacé par un **service socket.io Bun autonome**
@@ -36,7 +36,7 @@ Next.js 16 (App Router, TypeScript)** :
 ### Positives
 
 - **Un seul langage** (TypeScript) de la base de données au canvas : zéro duplication de
-  modèles, un contrat unique `src/lib/kidcad/shared/types.ts` partagé client/serveur.
+  modèles, un contrat unique `src/lib/yahriacad/shared/types.ts` partagé client/serveur.
 - **Build et déploiement simples** : un artefact Next.js (mode standalone) + un petit
   service Bun ; pas de registry protobuf ni de génération de stubs multi-langages.
 - **Temps réel natif** : socket.io couvre la progression des jobs IA (événements
@@ -50,7 +50,7 @@ Next.js 16 (App Router, TypeScript)** :
 - Le backend Next.js est mono-processus Node/Bun : pas de parallélisme Go (goroutines)
   pour les calculs lourds ; ceux-ci sont délégués au service IA dédié.
 - Couplage framework : le code sous `src/app/api` dépend de Next.js (mitigé par le
-  placement du métier dans `src/lib/kidcad`, agnostique).
+  placement du métier dans `src/lib/yahriacad`, agnostique).
 - SQLite n'est pas adapté à un déploiement multi-instances haute charge (suffisant pour
   une application mono-serveur ; PostgreSQL resterait possible via Prisma sans changer
   le métier).

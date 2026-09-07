@@ -1,4 +1,4 @@
-# Guide de démarrage rapide — KidCAD-Pro-IA
+# Guide de démarrage rapide — YahriaCad
 
 > De l'installation aux Gerbers en ~15 minutes, avec le projet démo
 > **« Kit LED Chaser 10 voies »** (NE555 + CD4017 + 10 LEDs).
@@ -9,8 +9,8 @@ Prérequis : [Bun](https://bun.sh) ≥ 1.1 (ou Node.js ≥ 20), Docker optionnel
 
 ```bash
 # Cloner puis installer les dépendances
-git clone <url-du-depot> kidcad-pro-ia
-cd kidcad-pro-ia
+git clone <url-du-depot> yahriacad
+cd yahriacad
 bun install
 ```
 

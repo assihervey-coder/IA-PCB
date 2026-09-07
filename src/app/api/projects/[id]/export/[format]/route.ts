@@ -3,14 +3,14 @@
  * format ∈ gerber (ZIP) | bom (CSV) | step | stl | json | netlist-kicad
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { projectRepo } from '@/lib/kidcad/infrastructure/persistence/sql/project_repo'
-import { generateGerberZip } from '@/lib/kidcad/application/export/gerber'
-import { generateBom } from '@/lib/kidcad/application/export/bom'
-import { generateStl } from '@/lib/kidcad/application/export/stl'
-import { generateStep } from '@/lib/kidcad/application/export/step'
-import { generateKicadNetlist } from '@/lib/kidcad/application/export/netlist'
-import { syncNetlist } from '@/lib/kidcad/ai-engine'
-import { createLogger } from '@/lib/kidcad/pkg/logger'
+import { projectRepo } from '@/lib/yahriacad/infrastructure/persistence/sql/project_repo'
+import { generateGerberZip } from '@/lib/yahriacad/application/export/gerber'
+import { generateBom } from '@/lib/yahriacad/application/export/bom'
+import { generateStl } from '@/lib/yahriacad/application/export/stl'
+import { generateStep } from '@/lib/yahriacad/application/export/step'
+import { generateKicadNetlist } from '@/lib/yahriacad/application/export/netlist'
+import { syncNetlist } from '@/lib/yahriacad/ai-engine'
+import { createLogger } from '@/lib/yahriacad/pkg/logger'
 
 const log = createLogger('api:export')
 
@@ -45,7 +45,7 @@ export async function GET(
       case 'stl':
         return textFile(generateStl(design), 'model/stl', `${base}.stl`)
       case 'json':
-        return textFile(JSON.stringify(design, null, 2), 'application/json', `${base}.kidcad.json`)
+        return textFile(JSON.stringify(design, null, 2), 'application/json', `${base}.yahriacad.json`)
       case 'netlist-kicad':
         return textFile(generateKicadNetlist(design), 'text/plain', `${base}-netlist.kicad.net`)
       default:

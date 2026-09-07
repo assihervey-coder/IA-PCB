@@ -14,7 +14,7 @@ export async function GET() {
   }
   return NextResponse.json({
     status: 'ok',
-    app: 'KidCAD-Pro-IA',
+    app: 'YahriaCad',
     services: {
       api: true,
       database: dbOk,

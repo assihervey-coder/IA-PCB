@@ -1,8 +1,8 @@
 # syntax=docker/dockerfile:1
 # =============================================================================
-# KidCAD-Pro-IA — Image backend + frontend (Next.js 16, monolithe modulaire)
-# Build : docker build -f docker/Dockerfile -t kidcad-app .
-# Run   : docker run -p 3000:3000 -e DATABASE_URL="file:../db/custom.db" kidcad-app
+# YahriaCad — Image backend + frontend (Next.js 16, monolithe modulaire)
+# Build : docker build -f docker/Dockerfile -t yahriacad-app .
+# Run   : docker run -p 3000:3000 -e DATABASE_URL="file:../db/custom.db" yahriacad-app
 # =============================================================================
 
 # --- Base : Bun 1 (runtime + gestionnaire de paquets du projet) --------------

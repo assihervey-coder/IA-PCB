@@ -1,4 +1,4 @@
-# KidCAD-Pro-IA
+# YahriaCad
 
 ![Licence](https://img.shields.io/badge/licence-AGPL--3.0-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
@@ -7,7 +7,7 @@
 ![Socket.io](https://img.shields.io/badge/socket.io-4.8-white)
 ![Three.js](https://img.shields.io/badge/Three.js-0.185-049EF4)
 
-**KidCAD-Pro-IA** est une application web complète de CAO électronique (EDA) : éditeur de
+**YahriaCad** est une application web complète de CAO électronique (EDA) : éditeur de
 schémas électriques, éditeur de PCB 2D, **placement et routage assistés par IA**, vérification
 **DRC/ERC**, visualisation **3D temps réel** et exports industriels (**Gerber RS-274X**, Excellon,
 BOM CSV, STEP, STL, netlist KiCad).
@@ -37,7 +37,7 @@ les composants et route les pistes en quelques secondes.
 ## 🗂️ Structure du dépôt
 
 ```text
-KidCAD-Pro-IA/
+YahriaCad/
 ├── src/
 │   ├── app/                        # Next.js App Router
 │   │   ├── page.tsx                # SPA mono-route (éditeur complet)
@@ -45,10 +45,10 @@ KidCAD-Pro-IA/
 │   │       ├── projects/           # CRUD, drc, erc, import, export
 │   │       ├── footprints/         # bibliothèque d'empreintes
 │   │       └── health/             # état des services
-│   ├── components/                 # UI (shadcn/ui + composants kidcad)
+│   ├── components/                 # UI (shadcn/ui + composants yahriacad)
 │   └── lib/
 │       ├── db.ts                   # client Prisma
-│       └── kidcad/                 # ⭐ cœur métier
+│       └── yahriacad/                 # ⭐ cœur métier
 │           ├── domain/             # entités : project, schematic, layout, constraints
 │           ├── application/        # cas d'usage : import, validate, place, route, optimize, export, drc, erc
 │           ├── infrastructure/     # adaptateurs (persistance, sérialisation, exporters)
@@ -80,12 +80,12 @@ KidCAD-Pro-IA/
 > spécifié à l'origine avec un backend Go (`backend/internal/{domain,application,infrastructure,pkg}`),
 > un microservice IA gRPC en Python et un frontend séparé. L'implémentation réelle conserve
 > **exactement le même découpage logique**, transposé en TypeScript dans le monorepo Next.js :
-> `backend/internal/domain` → `src/lib/kidcad/domain/`, `backend/internal/application` →
-> `src/lib/kidcad/application/`, `backend/internal/pkg` → `src/lib/kidcad/pkg/`,
+> `backend/internal/domain` → `src/lib/yahriacad/domain/`, `backend/internal/application` →
+> `src/lib/yahriacad/application/`, `backend/internal/pkg` → `src/lib/yahriacad/pkg/`,
 > `ai-engine` (gRPC) → `mini-services/ai-engine` (socket.io, port 3010), `ai-engine`
 > (RL Python) → `ai-engine/` à la racine. Ce choix simplifie radicalement le déploiement :
 > un seul artefact web temps réel, un langage de bout en bout, des types partagés
-> client/serveur (`src/lib/kidcad/shared/types.ts`). Voir `docs/architecture/adr-001-monorepo-nextjs.md`.
+> client/serveur (`src/lib/yahriacad/shared/types.ts`). Voir `docs/architecture/adr-001-monorepo-nextjs.md`.
 
 ---
 

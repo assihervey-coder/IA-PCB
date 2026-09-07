@@ -101,7 +101,7 @@ class NetGraphNet(nn.Module):
         pads: List[dict],
         nets: List[dict],
     ) -> Tuple[NodeFeatures, EdgeIndex, EdgeAttr]:
-        """Construit le graphe à partir d'une netlist KidCAD parsée.
+        """Construit le graphe à partir d'une netlist YahriaCad parsée.
 
         Args:
             pads: liste de dicts {ref, pin, net, x, y, layer}.

@@ -1,5 +1,5 @@
 # =============================================================================
-# KidCAD-Pro-IA — Hyperparamètres d'entraînement : PLACEUR (recuit simulé + RL)
+# YahriaCad — Hyperparamètres d'entraînement : PLACEUR (recuit simulé + RL)
 # Pipeline R&D Python — NON requis pour l'inférence (moteur TS déterministe :
 # simulated annealing minimisant HPWL + pénalités chevauchement).
 # Sortie attendue : training/placer/model_v1.pt

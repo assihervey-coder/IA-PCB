@@ -3,5 +3,5 @@
 	filemode = true
 	bare = true
 [remote "origin"]
-	url = https://github.com/kidcad/kidcad-pro-ia
+	url = https://github.com/assihervey-coder/IA-PCB
 	fetch = +refs/heads/*:refs/remotes/origin/*

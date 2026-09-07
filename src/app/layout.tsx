@@ -14,18 +14,18 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "KidCAD-Pro IA — CAO électronique avec placement & routage IA",
+  title: "YahriaCad-Pro IA — CAO électronique avec placement & routage IA",
   description:
     "Éditeur de schémas, éditeur de PCB, placement par recuit simulé, routage A* multi-couches, DRC/ERC et export Gerber/STEP/BOM.",
   keywords: ["PCB", "CAO", "EDA", "Gerber", "routage automatique", "IA", "KiCad"],
-  authors: [{ name: "KidCAD-Pro-IA Contributors" }],
+  authors: [{ name: "YahriaCad Contributors" }],
   icons: {
     icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
   openGraph: {
-    title: "KidCAD-Pro IA",
+    title: "YahriaCad-Pro IA",
     description: "CAO électronique avec placement & routage IA",
-    siteName: "KidCAD-Pro-IA",
+    siteName: "YahriaCad",
     type: "website",
   },
 };

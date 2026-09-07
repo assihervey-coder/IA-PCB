@@ -1,5 +1,5 @@
 /**
- * KidCAD-Pro-IA — Microservice IA (socket.io, port 3010)
+ * YahriaCad — Microservice IA (socket.io, port 3010)
  * Équivalent du service gRPC `ai-engine/cmd/ai-server/main.py` :
  * expose les tâches placement / routage / optimisation avec diffusion
  * temps réel de la progression.
@@ -14,12 +14,12 @@ import {
   AiPlaceOptions,
   AiRouteOptions,
   Design,
-} from '../../src/lib/kidcad/shared/types'
+} from '../../src/lib/yahriacad/shared/types'
 import {
   runOptimization,
   runPlacement,
   runRouting,
-} from '../../src/lib/kidcad/ai-engine'
+} from '../../src/lib/yahriacad/ai-engine'
 
 const PORT = Number(process.env.AI_ENGINE_PORT ?? 3010)
 
@@ -40,7 +40,7 @@ io.on('connection', (socket) => {
   console.log(`[ai-engine] Client connecté : ${socket.id}`)
 
   socket.emit('ai:hello', {
-    agent: 'KidCAD-Engine v1',
+    agent: 'YahriaCad-Engine v1',
     tasks: ['place', 'route', 'optimize'],
     algorithms: {
       place: 'Recuit simulé (HPWL + anti-chevauchement)',
@@ -101,5 +101,5 @@ io.on('connection', (socket) => {
 })
 
 httpServer.listen(PORT, () => {
-  console.log(`[ai-engine] KidCAD-Pro-IA moteur IA prêt sur le port ${PORT}`)
+  console.log(`[ai-engine] YahriaCad moteur IA prêt sur le port ${PORT}`)
 })

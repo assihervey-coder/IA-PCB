@@ -1,6 +1,6 @@
-     1→"""gRPC AI router service (KidCAD-Pro-IA ai-engine).
+     1→"""gRPC AI router service (YahriaCad ai-engine).
      2→
-     3→Implements ``kidcad.pcb.v1.AIRouterService`` (see ``shared/types/pcb.proto``):
+     3→Implements ``yahriacad.pcb.v1.AIRouterService`` (see ``shared/types/pcb.proto``):
      4→
      5→* ``GetHealth``     : liveness + configuration report;
      6→* ``PlanPlacement`` : simulated-annealing placement (deterministic seed);
@@ -509,15 +509,15 @@
    509→
    510→
    511→class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
-   512→    """Implementation of ``kidcad.pcb.v1.AIRouterService``."""
+   512→    """Implementation of ``yahriacad.pcb.v1.AIRouterService``."""
    513→
    514→    def __init__(self, config_path: Optional[str] = None, logger: Optional[logging.Logger] = None) -> None:
    515→        """Args:
    516→        config_path: optional YAML config override (defaults to
    517→            ``training/router/config.yaml`` inside the ai-engine root).
-   518→        logger: optional logger (defaults to ``kidcad.ai``).
+   518→        logger: optional logger (defaults to ``yahriacad.ai``).
    519→        """
-   520→        self._log = logger if logger is not None else logging.getLogger("kidcad.ai")
+   520→        self._log = logger if logger is not None else logging.getLogger("yahriacad.ai")
    521→        self.version = "0.1.0"
    522→
    523→        config = _load_yaml_config(config_path)

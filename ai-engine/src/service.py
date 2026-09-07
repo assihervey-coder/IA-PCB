@@ -1,4 +1,4 @@
-"""Client socket.io Python — comment brancher un modèle RL entraîné sur KidCAD-Pro-IA.
+"""Client socket.io Python — comment brancher un modèle RL entraîné sur YahriaCad.
 
 RÔLE (documenté, non requis en production) :
 En production, les jobs IA (`ai:place`, `ai:route`, `ai:optimize`) sont traités par
@@ -21,9 +21,9 @@ from typing import Any, Dict
 import socketio  # python-socketio
 
 logging.basicConfig(level=logging.INFO, format="[ai-rl] %(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger("kidcad-ai-rl")
+logger = logging.getLogger("yahriacad-ai-rl")
 
-# Types partagés : miroir Python de src/lib/kidcad/shared/types.ts (contrat JSON).
+# Types partagés : miroir Python de src/lib/yahriacad/shared/types.ts (contrat JSON).
 AiJobOptions = Dict[str, Any]
 Design = Dict[str, Any]
 
@@ -44,7 +44,7 @@ class AiRlService:
 
         @self.sio.on("connect")
         def _on_connect() -> None:
-            logger.info("Connecté à la gateway KidCAD")
+            logger.info("Connecté à la gateway YahriaCad")
 
         @self.sio.on("ai:place")
         def _on_place(data: Dict[str, Any]) -> None:

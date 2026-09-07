@@ -1,5 +1,5 @@
 # =============================================================================
-# KidCAD-Pro-IA — Hyperparamètres d'entraînement : OPTIMISEUR DE VIAS
+# YahriaCad — Hyperparamètres d'entraînement : OPTIMISEUR DE VIAS
 # Pipeline R&D Python — NON requis pour l'inférence (moteur TS déterministe :
 # optimiseur de réduction de vias post-routage + rip-up & reroute).
 # Sortie attendue : training/optimizer/model_v1.pt

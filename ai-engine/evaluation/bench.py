@@ -1,6 +1,6 @@
 """Benchmark CLI — évalue un agent sur N grilles aléatoires.
 
-Pipeline R&D KidCAD-Pro-IA (non requis en production). Compare des agents :
+Pipeline R&D YahriaCad (non requis en production). Compare des agents :
   - ``random`` : agent aléatoire (baseline) ;
   - ``greedy`` : heuristique gloutonne (se rapproche de la cible) ;
   - ``ppo``    : politique PPO entraînée (checkpoint .pt, optionnel).
@@ -159,7 +159,7 @@ def main() -> None:
     ]
     print(format_table(rows, ["agent", "grilles", "taille", "longueur (mm)",
                               "vias", "completion", "violations DRC"]))
-    print("\nRappel : ce benchmark est un outil R&D. L'application KidCAD-Pro-IA")
+    print("\nRappel : ce benchmark est un outil R&D. L'application YahriaCad")
     print("utilise le moteur TS déterministe (A* + rip-up & reroute) en production.")
 
 

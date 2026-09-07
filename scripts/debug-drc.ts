@@ -1,7 +1,7 @@
 /** Debug DRC : affiche les violations après routage du projet démo. */
-import { buildLedChaserDesign } from '../src/lib/kidcad/library/samples/led-chaser'
-import { runRouting } from '../src/lib/kidcad/ai-engine'
-import { runDrc } from '../src/lib/kidcad/application/verification/drc'
+import { buildLedChaserDesign } from '../src/lib/yahriacad/library/samples/led-chaser'
+import { runRouting } from '../src/lib/yahriacad/ai-engine'
+import { runDrc } from '../src/lib/yahriacad/application/verification/drc'
 
 const design = buildLedChaserDesign('dbg')
 const stats = await runRouting(design, { maxPasses: 2 }, () => {})

@@ -3,13 +3,13 @@
 # Démarre le backend en mémoire, exécute le scénario, arrête le serveur.
 set -euo pipefail
 
-cd /home/z/my-project/kidcad-pro-ia
+cd /home/z/my-project/yahriacad
 export PATH=/home/z/toolchain/go/bin:$PATH
 PORT=8091
 BASE="http://127.0.0.1:${PORT}"
 
 echo "== démarrage du backend (repo mémoire) =="
-/home/z/my-project/scripts/.bin/kidcad-server &
+/home/z/my-project/scripts/.bin/yahriacad-server &
 SRV_PID=$!
 trap 'kill $SRV_PID 2>/dev/null || true' EXIT
 

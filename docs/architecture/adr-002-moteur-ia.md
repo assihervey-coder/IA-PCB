@@ -2,12 +2,12 @@
 
 - **Statut :** Accepté
 - **Date :** 2025
-- **Décideurs :** équipe KidCAD-Pro-IA
+- **Décideurs :** équipe YahriaCad
 
 ## Contexte
 
 Le placement et le routage automatiques sont les fonctions « IA » centrales de
-KidCAD-Pro-IA. Deux voies étaient possibles :
+YahriaCad. Deux voies étaient possibles :
 
 1. **Modèles RL entraînés** (PyTorch : PPO + GNN sur un environnement grille type
    Gymnasium) servis en production, comme initialement spécifié (`ai-engine/` gRPC
@@ -27,7 +27,7 @@ Contraintes réelles :
 ## Décision
 
 1. **Le produit déployé embarque un moteur d'inférence déterministe TypeScript**
-   (`src/lib/kidcad/ai-engine/`, pur, sans dépendance Next.js) composé de :
+   (`src/lib/yahriacad/ai-engine/`, pur, sans dépendance Next.js) composé de :
    - un **routeur A\* maze-routing multi-couches 2 couches** (F.Cu / B.Cu) avec coût de
      via, grille de routage 0.635 mm ;
    - un **rip-up & reroute** itératif pour débloquer les nets conflictuels ;

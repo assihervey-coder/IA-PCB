@@ -2,9 +2,9 @@
  * API REST — POST /api/projects/{id}/drc : rapport Design Rule Check.
  */
 import { NextRequest, NextResponse } from 'next/server'
-import { projectRepo } from '@/lib/kidcad/infrastructure/persistence/sql/project_repo'
-import { runDrc } from '@/lib/kidcad/application/verification/drc'
-import { createLogger } from '@/lib/kidcad/pkg/logger'
+import { projectRepo } from '@/lib/yahriacad/infrastructure/persistence/sql/project_repo'
+import { runDrc } from '@/lib/yahriacad/application/verification/drc'
+import { createLogger } from '@/lib/yahriacad/pkg/logger'
 
 const log = createLogger('api:drc')
 
