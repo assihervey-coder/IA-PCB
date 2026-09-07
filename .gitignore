@@ -67,4 +67,5 @@ ai-engine/data/augmentations/*
 ai-engine/**/__pycache__/
 venv/
 .venv/
-ai-engine/training/**/logs/scripts/.bin/
+ai-engine/training/**/logs/
+scripts/.bin/
