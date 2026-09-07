@@ -390,3 +390,23 @@ Stage Summary:
 - Import .kicad_pcb supporté pour KiCad 5, 6, 7, 8, 9, 10 + best-effort version future avec avertissement ; réponse d'import expose file_version
 - Bug outline gr_line corrigé : pic_programmer passe de 100x80 (défaut) à 160.02x99.06 mm et route réellement (A* done)
 - Backend live reconstruit et redémarré via script ; 5 démos en ligne (DEMO5 video routage long en cours à la rédaction)
+---
+Task ID: 16
+Agent: Super Z (main)
+Task: Investiguer le parser pic_programmer (0 nets importés) + round-trip complet import→export→ré-import avec preuve de fidélité
+
+Work Log:
+- Diagnostic pic_programmer : le fichier actuel (/tmp/kicad-pic_programmer.kicad_pcb, re-téléchargé à 14:05) contient 613 refs (net …), 63 footprints, 370 segments, 6 vias ; l'import live du seed a réussi (63 comp., 111 nets, 0 warning, routage A* 2857 ms). Cause racine du « 0 nets » initial : premier fichier téléchargé corrompu (12:59), remplacé ensuite — aucun bug parser. Bonus : le format KiCad 10 (version 20260206, nets par NOM sans table racine) est géré par resolveNetRef (IDs synthétiques) — commenté lignes 443/654 de kicad.go.
+- Round-trip complet scripté (scripts/roundtrip_test.py, idempotent avec cleanup RT-*) : snapshot /layout → export /export/kicad → inspect s-expr → projet neuf → ré-import → diff fidélité + ODB++ netlist des deux côtés (regex NET '…').
+- Itérations métriques : multiset segments bruts → réduction colinéaire (bug ligne vs segment corrigé par projection clampée) → métrique finale rigoureuse : longueur cuivre par (net,couche,largeur) + couverture échantillonnée vs SEGMENTS (point-segment). Les écarts résiduels étaient tous cosmétiques (discrétisation des runs colinéaires à travers les frontières de pistes).
+- BUG RÉEL détecté : pads SMD arrière basculent B.Cu→F.Cu au double round-trip (SolderJumper de pic_programmer). Chaîne : writer codait (layer "F.Cu") en dur pour toute empreinte ; reader déduisait le côté SMD de l'empreinte en ignorant (layers "B.Cu" …) explicite.
+- Correctifs : writer/kicad_writer.go footprintLayer() (empreinte purement SMD toutes pastilles sur dernier cuivre → B.Cu) ; reader/kicad.go priorité aux couches explicites F.Cu/B.Cu sur le côté de l'empreinte. Tests : TestKiCadBackSideSMDPads, TestKicadWriterBackSideFootprint, check couche dans TestKicadWriterRoundTrip. gofmt+vet+go test ./... → 15 packages ok.
+- Restart stack via start_server.sh (binaire reconstruit) + re-seed 5 démos (DEMO5 routé : 1470 pistes / 808 vias). Round-trip final : FIDÉLITÉ 100% sur DEMO4 et DEMO3 — longueurs cuivre identiques (2236.8 / 1762.2 mm), 0 orphelin de couverture, vias/nets/composants/positions identiques, netlists ODB++ égales, côtés de pads égaux (2 B.Cu conservés).
+- Commit 5a1d776 poussé, CI GitHub verte. Export déterministe sauf UUID régénérés + discrétisation cosmétique (documenté).
+- DRC fonctionnel sur les projets ré-importés (violations edge-clearance = géométrie d'origine des vraies cartes, fidèlement préservée).
+
+Stage Summary:
+- pic_programmer : mystère résolu (fichier corrompu initial), format KiCad 10 natif géré.
+- Round-trip prouvé fidèle au point près + netlist ; 2 vrais bugs de côté de pads corrigés avec tests de régression (5a1d776, CI verte).
+- Projets RT-DEMO4-roundtrip / RT-DEMO3-roundtrip visibles dans l'UI (http://localhost:3000/pages/project-manager, admin/admin) pour inspection.
+- Scripts réutilisables : scripts/roundtrip_test.py (vérif fidélité), scripts/rt_diag.py (diagnostic segments).

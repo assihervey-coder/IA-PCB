@@ -72,3 +72,7 @@ scripts/.bin/
 download/*.zip
 .cache/
 yahriacad-data/
+
+# --- Artefacts outils locaux (IA) ---
+tool-results/
+tmp-rt/*.tgz
