@@ -63,7 +63,10 @@ def main(argv: list[str] | None = None) -> int:
 
     cfg = PPOConfig()
     cfg.seed = args.seed
-    agent = PPOAgent(cfg, in_channels=5, n_actions=12, device="cpu")
+    probe_env = PCBRouteEnv(*make_synthetic_board(args.seed),
+                            EnvConfig(clearance_cells=1, seed=args.seed))
+    in_channels = probe_env.observation_shape[0]
+    agent = PPOAgent(cfg, in_channels=in_channels, n_actions=12, device="cpu")
 
     def env_factory() -> PCBRouteEnv:
         board, nets = make_synthetic_board(args.seed)

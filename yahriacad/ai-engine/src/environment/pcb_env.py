@@ -27,13 +27,17 @@ Blocking rules
 
 Observation
 -----------
-``float32`` array of shape ``(layer_count + 3, H, W)``:
+``float32`` array of shape ``(layer_count + 4, H, W)``:
 
 * channels ``0 .. layer_count-1``: obstacle plane per layer;
 * channel ``layer_count``: source mask (episode start pad cell);
 * channel ``layer_count + 1``: target mask (remaining target pad cells);
 * channel ``layer_count + 2``: layer indicator (constant plane equal to
-  ``current_layer / max(1, layer_count - 1)``).
+  ``current_layer / max(1, layer_count - 1)``);
+* channel ``layer_count + 3``: agent position (one-hot at the current
+  cell). Without it the observation is constant across steps and the
+  policy cannot be reactive (degenerate POMDP); the position channel is
+  what makes greedy rollouts recoverable after a wrong turn.
 
 Actions
 -------
@@ -67,6 +71,26 @@ from .reward import RewardConfig, RewardShaper
 Cell = tuple[int, int, int]  # (x, y, layer) in grid cells
 
 _MOVES_4: tuple[tuple[int, int], ...] = ((0, -1), (1, 0), (0, 1), (-1, 0))
+
+# Rings of the agent-position plane (radius 2, decaying values): a single
+# one-hot pixel does not survive stride-2 convolutions reliably, so the
+# position is rendered as a small graded blob. Shared with the imitation
+# pipeline which must rebuild bit-identical observations.
+_POSITION_RINGS: tuple[tuple[int, float], ...] = ((0, 1.0), (1, 0.6), (2, 0.3))
+
+
+def position_plane(height: int, width: int, x: int, y: int) -> np.ndarray:
+    """Graded position blob ``(H, W)`` centred on cell ``(x, y)``."""
+    plane = np.zeros((height, width), dtype=np.float32)
+    for radius, value in _POSITION_RINGS:
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                if max(abs(dx), abs(dy)) != radius:
+                    continue  # rings only, no overdraw
+                py, px = y + dy, x + dx
+                if 0 <= py < height and 0 <= px < width:
+                    plane[py, px] = value
+    return plane
 
 
 @dataclass
@@ -302,8 +326,8 @@ class PCBRouteEnv:
 
     @property
     def observation_shape(self) -> tuple[int, int, int]:
-        """Observation shape ``(channels, H, W)`` with ``channels = layer_count + 3``."""
-        return (self.layer_count + 3, self.grid_h, self.grid_w)
+        """Observation shape ``(channels, H, W)`` with ``channels = layer_count + 4``."""
+        return (self.layer_count + 4, self.grid_h, self.grid_w)
 
     @property
     def episode_path(self) -> list[Cell]:
@@ -342,7 +366,7 @@ class PCBRouteEnv:
 
     def _observation(self) -> np.ndarray:
         """Build the multi-channel float32 observation for the current state."""
-        channels = self.layer_count + 3
+        channels = self.layer_count + 4
         obs = np.zeros((channels, self.grid_h, self.grid_w), dtype=np.float32)
         ep = self._episode
         if 0 <= ep.net_index < len(self._nets):
@@ -353,6 +377,7 @@ class PCBRouteEnv:
         for (tx, ty, _tl) in ep.targets:
             obs[self.layer_count + 1, ty, tx] = 1.0
         obs[self.layer_count + 2, :, :] = ep.layer / max(1, self.layer_count - 1)
+        obs[self.layer_count + 3] = position_plane(self.grid_h, self.grid_w, ep.x, ep.y)
         return obs
 
     def _nearest_target_distance(self) -> int:
@@ -438,6 +463,7 @@ class PCBRouteEnv:
 
         prev_dist = self._nearest_target_distance()
 
+        cell: Cell | None = None
         if dlayer != 0:
             new_layer = ep.layer + dlayer
             valid_layer = 0 <= new_layer < self.layer_count
@@ -467,12 +493,17 @@ class PCBRouteEnv:
                 ep.path.append(cell)
                 new_dist = self._nearest_target_distance()
                 reward += shaper.progress(prev_dist, new_dist)
-                if cell in ep.targets:
-                    ep.targets.remove(cell)
-                    ep.done = True
-                    ep.success = True
-                    reward += shaper.success()
-                    reward += shaper.terminal_length_cost(len(ep.path))
+
+        # Un pad cible atteint termine l'episode, par deplacement OU par via
+        # (le cas via etait omis : les episodes finissant sur un via vers le
+        # pad cible n'etaient jamais des succes, en entrainement comme en
+        # inference RL).
+        if cell is not None and cell in ep.targets:
+            ep.targets.remove(cell)
+            ep.done = True
+            ep.success = True
+            reward += shaper.success()
+            reward += shaper.terminal_length_cost(len(ep.path))
 
         if not ep.done and ep.steps >= self.max_steps:
             ep.done = True

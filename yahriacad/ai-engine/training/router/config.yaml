@@ -14,8 +14,11 @@ router:
   # Chemin du checkpoint PPO (relatif a la racine ai-engine/).
   # Genere par l'entrainement, JAMAIS committe a la main.
   model_path: training/router/model_v1.pt
-  # Canaux d'observation : layer_count (2) + 3 (source, cible, indicateur couche)
-  in_channels: 5
+  # Canaux d'observation : layer_count (2) + source + cible + indicateur
+  # couche + position de l'agent (canal ajoute : sans lui la politique
+  # n'est pas reactive). Les checkpoints 5 canaux precedents sont
+  # incompatibles et doivent etre re-entraines.
+  in_channels: 6
 
 env:
   # Resolution de la grille de routage (mm). 0.25 mm = la valeur du contrat.

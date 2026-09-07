@@ -183,6 +183,29 @@ make train-router STEPS=200000
 #   et POST .../route {"strategy":"rl"} utilise le modèle (repli A* sinon).
 ```
 
+### Imitation learning — le RL apprend en observant A\* (v0.7)
+
+`ai-engine/training/router/imitation.py` distille les trajectoires de
+l'expert A\* dans le même réseau (behavioral cloning + cellules-sondes
+étiquetées par le champ de reprise A\* + passe DAgger). Résultat mesuré en
+arène (carte démo 6 nets) : le score RL passe de 49,72 (PPO) / 130,67
+(PPO 20k) à **461,75** contre 592,70 pour A\* — et le mode RL en ligne reste
+rapide grâce au budget de pas adaptatif avec repli A\* par net.
+
+```bash
+# 1) dumper les entrées exactes d'un routage réel :
+YAHRIACAD_DUMP_ROUTE_INPUT=/tmp/dump make run-ai   # + un POST /route
+# 2) démonstrations (vraie carte + curriculum synthétique) :
+python3 ai-engine/training/router/imitation.py generate \
+    --input /tmp/dump/route_input.json --probes-real 25 --synthetic 32 --probes 40
+# 3) entraînement + éval hors-ligne + reload à chaud :
+python3 ai-engine/training/router/imitation.py train \
+    --demos ai-engine/training/router/demos.npz --out ai-engine/training/router/model_bc.pt
+python3 ai-engine/training/router/imitation.py eval \
+    --model ai-engine/training/router/model_bc.pt --input /tmp/dump/route_input.json
+curl -X POST .../api/v1/ai/model/reload -d '{"checkpoint_path":"training/router/model_bc.pt"}'
+```
+
 ## Tests
 
 ```bash

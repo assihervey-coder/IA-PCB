@@ -16,6 +16,7 @@ with the pure-Python A* fallback.
 
 from __future__ import annotations
 
+import json
 import logging
 import math
 import os
@@ -599,14 +600,26 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         return EnvConfig(clearance_cells=self._clearance_cells, seed=0)
 
     def _rl_route(self, env: PCBRouteEnv, net_index: int) -> dict | None:
-        """Greedy RL rollout for one net; ``None`` when it fails to connect."""
+        """Greedy RL rollout for one net; ``None`` when it fails to connect.
+
+        Le budget de pas est plafonne a ~4x la distance manhattan optimale
+        (+ marge) : un rollout qui n'a pas convergé dans ce budget ne
+        convergera jamais (mesures imitation learning 2026-09) — echec
+        rapide pour laisser le repli A* prendre la main sans monopoliser
+        le moteur pendant des minutes par net en echec.
+        """
         agent = self._agent
         if agent is None:
             return None
         try:
             obs = env.reset(net_index)
+            ep = env._episode
+            step_budget = env.max_steps
+            if ep.start is not None and ep.targets:
+                dist = min(env._pad_dist(ep.start, t) for t in ep.targets)
+                step_budget = min(step_budget, 4 * dist + 96)
             info: dict = {}
-            for _ in range(env.max_steps):
+            for _ in range(step_budget):
                 action = agent.select_action(obs, greedy=True)
                 obs, _reward, terminated, truncated, info = env.step(action)
                 if terminated or truncated:
@@ -690,6 +703,21 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             all_nets = _nets_to_dicts(request.nets)
             job_id = _job_id_from_context(context)
             env = PCBRouteEnv(board, all_nets, self._env_config())
+
+            # Optional debug/imitation-learning hook: dump the exact env
+            # inputs this request carries (YAHRIACAD_DUMP_ROUTE_INPUT=<dir>).
+            dump_dir = os.environ.get("YAHRIACAD_DUMP_ROUTE_INPUT") or ""
+            if dump_dir:
+                try:
+                    target = Path(dump_dir)
+                    target.mkdir(parents=True, exist_ok=True)
+                    payload = {"board": board, "nets": all_nets}
+                    (target / "route_input.json").write_text(
+                        json.dumps(payload), encoding="utf-8"
+                    )
+                    self._log.info("RouteBoard input dumped to %s", target / "route_input.json")
+                except Exception as exc:  # never fail a route for a debug dump
+                    self._log.warning("route input dump failed: %s", exc)
 
             filters = [str(name) for name in request.net_filter if str(name)]
             index_by_name = {net["name"]: i for i, net in enumerate(all_nets)}

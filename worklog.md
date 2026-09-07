@@ -212,3 +212,29 @@ Stage Summary:
 - Mesuré : RL +163 % de score à ~20k pas mais toujours dominé par A* (ELO 1212/1188) ; RL ne passe PAS à l'échelle 52 nets réels en <8 min CPU — la limite est structurelle (inférence pas-à-pas), pas un bug
 - Décisions : pas d'entraînement sur vraie carte (le trainer reste sur curriculum synthétique par conception) ; benchmark sur vraie carte reporté comme chantier futur (budget de pas à réduire pour l'inférence grande grille)
 - Restant : vérifier CI 3/3 sur GitHub (2 commits), PAT toujours à révoquer
+
+---
+Task ID: 11
+Agent: Super Z (main)
+Task: Imitation learning (behavioral cloning de A*) — le RL apprend en observant l'expert
+
+Work Log:
+- Hook debug YAHRIACAD_DUMP_ROUTE_INPUT dans RouteBoard (src/service.py) : dump JSON des entrees EXACTES de l'env (board+nets) -> demonstrations fideles a l'inference de production, zero duplication de conversion
+- ai-engine/training/router/imitation.py (~790 l.) : generate (trajectoire experte par net + cellules-sondes etiquetees par le champ de reprise A* + sur-echantillonnage x3 des cas d'evitement + curriculum synthetique) / train (cross-entropy, split par demo, batchs homogenes par forme de grille, budget temps, reprise --init-from, checkpoint au format PPO) / eval (A* vs BC sur deux envs separes, repli A* net par net, cap de pas) / collect_dagger (passe DAgger : etats visites par la politique, etiquetes par A*)
+- 3 BUGS REELS trouves par le pipeline d'imitation :
+  1) pcb_env.step : le via vers un pad cible ne declenchait JAMAIS le succes (controle uniquement dans la branche move) -> episodes finissant sur un via jamais gagnants, en train comme en inference RL ; corrige (succes verifie pour les deux branches)
+  2) L'observation NE CONTENAIT PAS la position de l'agent (POMDP degrade : obs constante d'un pas a l'autre, politique gloutonne = action constante) ; corrige : canal layer_count+3 = blob gradue de position (anneaux 1.0/0.6/0.3, rayon 2, helper partage position_plane) -> in_channels 5 -> 6, config.yaml + train.py (in_channels dynamique) ; checkpoints 5 canaux incompatibles (assumé, re-entrainement)
+  3) Le "RL 6/6, 196.5mm" du benchmark historique etait majoritairement du repli A* deguise : le checkpoint PPO v2 rate 10/10 nets en rollout glouton pur (verifie) ; le masquage d'actions + canal position rendent la mesure honnete
+- Architecture ActorCritic v2 (ppo_agent.py) : double pooling avg+max (le max preserve les pics epars), tete locale fully-conv (logits par cellule a la res 1/8, echantillonnes a la cellule de l'agent recuperee du blob), convs dilatees d2/d4 (champ receptif ~152 px contre les minimaux locaux), branche globale fusionnee, et MASQUAGE DES ACTIONS INVALIDES dans forward (fonction deterministe de l'obs, identique train/inference : collisions impossibles en glouton, verifie par test path_len==steps+1)
+- Iterations mesurees (carte tenue a l'ecart) : BC 1 carte -> memorisation (val 0.66->0.22) ; curriculum 32-48 cartes res 0.5mm + sondes 40 -> val 0.80 ; DAgger -> val 0.88 ; direction naive vs expert = 71.8% (reference obstacle-avoidance)
+- Smoke E2E scripts/smoke_imitation_train.sh + smoke_imitation_eval.sh : vraie carte complex_hierarchy -> dump (board 100x80mm, 52 nets) -> 510 demos / 38559 pas -> train warm-start (2 epochs, train 0.907 / val 0.85) -> fine-tune reel-seul avec sondes -> eval hors-ligne -> reload a chaud (loaded=true, 1 397 241 params) -> arene -> routage RL en ligne
+- Pièges d'infra résolus : moteurs IA ORPHELINS des sessions precedentes tenaient 50051 via SO_REUSEPORT et interceptaient les requetes (pkill + purge en tete des smokes) ; `cd x && python3 ... &` capture le PID du sous-shell (moteur orphelin au kill du trap -> lancement sans commande composee) ; backend demarre AVANT le bind du moteur -> backoff gRPC "connection refused" (ordre moteur->attente stricte->backend)
+- Amelioration produit : _rl_route plafonne le budget de pas a ~4x la distance manhattan optimale (+96) -> echec rapide par net et repli A* immediat ; routage RL 6 nets sur la VRAIE carte : done en 42 s (etait >440 s sans finir)
+- Arene finale (carte demo 6 nets) : A* 592.70 (146.0mm, 0 via) vs RL(BC) 461.75 (196.5mm, 10 vias, 6/6 nets) en 12.8 s — score RL x3.5 vs PPO 20k (130.67), marge reduite de 462 a 131 points
+- Limite honnete : transfert vers la grande carte reelle faible (BC seul 2/52, repli A* couvre le reste) — voie d'echelle : curriculum a resolution appariee, plus de sondes reelles, rondes DAgger supplementaires
+- Gates : ruff clean, pytest 9/9 (dont 4 tests imitation : encodage actions, rejeu bit-exact des obs, roundtrip npz sans pickle, train+checkpoint+non-collision)
+
+Stage Summary:
+- Livre : pipeline d'imitation learning complet (dump -> demos+sondes -> BC+DAgger -> eval -> reload a chaud), 3 bugs d'environnement corriges (via-cible, position absente, illusion de benchmark), architecture reactive + masquage d'actions, budget de pas adaptatif en production
+- Mesure cle : le RL(BC) ferme la majeure partie de l'ecart arene (461.75 vs 592.70, etait 49.72-130.67) et le mode RL redevient utilisable en ligne sur vraie carte (42 s pour 6 nets)
+- Restant : transfert grande carte (resolution appariee + DAgger reel), PAT GitHub toujours a revoker

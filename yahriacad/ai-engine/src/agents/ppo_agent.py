@@ -40,16 +40,25 @@ def _actor_critic_class():
         class _ActorCritic(nn.Module):
             """CNN actor-critic over multi-channel grid observations.
 
-            Conv stack -> adaptive average pool (fixed-size flatten, so a
-            single trained model works across board sizes) -> shared fc ->
-            policy head (logits) + value head.
+            Conv backbone (stride 2 x3, 1/8 resolution) feeding TWO heads:
+
+            * a fully-convolutional ``local_head`` producing per-cell action
+              logits, sampled at the agent cell (recovered from the graded
+              position plane): this gives real local vision - walls and
+              neighbours at 1/8 resolution, translation equivariant;
+            * a global branch (dual avg+max pooling -> fc) carrying the
+              target direction over long distances, fused with the local
+              features before the policy/value heads.
+
+            Final logits = policy head + local head (reactive ensemble).
 
             Args:
                 obs_shape: observation shape ``(channels, H, W)`` or plainly
                     the number of channels (int) - only the channel count is
                     consumed by the CNN encoder.
                 n_actions: size of the discrete action space.
-                hidden: width of the shared fully-connected layer.
+                hidden: width of the fully-connected layers.
+                pool: side of the global pooling grids.
             """
 
             def __init__(
@@ -61,6 +70,8 @@ def _actor_critic_class():
             ) -> None:
                 super().__init__()
                 in_channels = obs_shape[0] if isinstance(obs_shape, (tuple, list)) else int(obs_shape)
+                self.n_actions = int(n_actions)
+                self.stride = 8  # 3 convs stride 2
                 self.conv = nn.Sequential(
                     nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1),
                     nn.ReLU(),
@@ -68,17 +79,92 @@ def _actor_critic_class():
                     nn.ReLU(),
                     nn.Conv2d(64, 64, kernel_size=3, stride=2, padding=1),
                     nn.ReLU(),
-                    nn.AdaptiveAvgPool2d((pool, pool)),
+                    # Convs dilatees (stride 1) : elargissent le champ
+                    # receptif (~152 px pleine resolution) pour voir autour
+                    # des obstacles et eviter les minimaux locaux du champ
+                    # reactif (aller-retours entre deux cellules).
+                    nn.Conv2d(64, 64, kernel_size=3, padding=2, dilation=2),
+                    nn.ReLU(),
+                    nn.Conv2d(64, 64, kernel_size=3, padding=4, dilation=4),
+                    nn.ReLU(),
                 )
-                self.flat_dim = 64 * pool * pool
-                self.fc = nn.Sequential(nn.Linear(self.flat_dim, hidden), nn.ReLU())
+                # Branch globale : le max preserve les pics epars (position,
+                # pads) que la moyenne dilue ; l'avg decrit le contexte.
+                self.pool_avg = nn.AdaptiveAvgPool2d((pool, pool))
+                self.pool_max = nn.AdaptiveMaxPool2d((pool, pool))
+                self.global_fc = nn.Sequential(
+                    nn.Linear(2 * 64 * pool * pool, hidden), nn.ReLU()
+                )
+                # Branch locale : logits par cellule a la resolution 1/8.
+                self.local_head = nn.Conv2d(64, self.n_actions, kernel_size=1)
+                self.fusion = nn.Sequential(
+                    nn.Linear(hidden + 64, hidden), nn.ReLU()
+                )
                 self.policy_head = nn.Linear(hidden, n_actions)
                 self.value_head = nn.Linear(hidden, 1)
 
             def forward(self, x):  # type: (torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
-                h = self.conv(x).flatten(1)
-                h = self.fc(h)
-                return self.policy_head(h), self.value_head(h).squeeze(-1)
+                batch, channels, height, width = x.shape
+                layer_count = channels - 4
+                feats = self.conv(x)
+                h8, w8 = feats.shape[2], feats.shape[3]
+                # Position de l'agent : centre unique du plan blob (canal -1).
+                flat_pos = x[:, -1].reshape(batch, -1)
+                idx = flat_pos.argmax(dim=1)
+                py = idx // width
+                px = idx % width
+                gy = (py // self.stride).clamp(0, h8 - 1)
+                gx = (px // self.stride).clamp(0, w8 - 1)
+                rows = torch.arange(batch, device=x.device)
+                local_feat = feats[rows, :, gy, gx]
+                local_logits = self.local_head(feats)[rows, :, gy, gx]
+                pooled = torch.cat(
+                    (self.pool_avg(feats).flatten(1), self.pool_max(feats).flatten(1)),
+                    dim=1,
+                )
+                z = self.fusion(torch.cat((self.global_fc(pooled), local_feat), dim=1))
+                logits = self.policy_head(z) + local_logits
+
+                # Masquage des actions invalides : fonction deterministe de
+                # l'observation (obstacles + position + couche), identique en
+                # train et en inference — le rollout glouton ne peut plus
+                # percuter un mur ni un via vers une cellule bloque.
+                logits = logits + self._action_mask(x, layer_count, py, px, width, height)
+                return logits, self.value_head(z).squeeze(-1)
+
+            def _action_mask(self, x, layer_count, py, px, width, height):
+                """Ajoute -inf (masque) ou 0 (autorisise) par action."""
+                batch = x.shape[0]
+                rows = torch.arange(batch, device=x.device)
+                blocked = x[:, :layer_count]  # (B, L, H, W)
+                layer = (
+                    x[:, layer_count + 2, 0, 0] * max(1, layer_count - 1)
+                ).round().long().clamp(0, layer_count - 1)
+                mask = torch.zeros(batch, self.n_actions, device=x.device)
+                moves = ((0, -1), (1, 0), (0, 1), (-1, 0))
+                for move_idx, (dx, dy) in enumerate(moves):
+                    nx = (px + dx).clamp(0, width - 1)
+                    ny = (py + dy).clamp(0, height - 1)
+                    in_bounds = (
+                        (px + dx >= 0) & (px + dx < width)
+                        & (py + dy >= 0) & (py + dy < height)
+                    )
+                    free = blocked[rows, layer, ny, nx] < 0.5
+                    mask[:, move_idx * 3] = torch.where(
+                        in_bounds & free, 0.0, -1.0e9
+                    )
+                up_free = (
+                    (layer + 1 < layer_count)
+                    & (blocked[rows, (layer + 1).clamp(0, layer_count - 1), py, px] < 0.5)
+                )
+                down_free = (
+                    (layer - 1 >= 0)
+                    & (blocked[rows, (layer - 1).clamp(0, layer_count - 1), py, px] < 0.5)
+                )
+                for move_idx in range(4):  # les vias ignorent le composant move
+                    mask[:, move_idx * 3 + 1] = torch.where(up_free, 0.0, -1.0e9)
+                    mask[:, move_idx * 3 + 2] = torch.where(down_free, 0.0, -1.0e9)
+                return mask
 
         _ACTOR_CRITIC_CLS = _ActorCritic
     return _ACTOR_CRITIC_CLS
