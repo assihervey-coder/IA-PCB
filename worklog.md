@@ -135,3 +135,22 @@ Stage Summary:
 - Décisions : auth opt-in (compat CI/dev), bcrypt ou clair (warn), /metrics public, rate limit désactivable par config, torch non embarqué par défaut dans l'image AI
 - Dépôt : github.com/assihervey-coder/YahriaCad main = e4a8065, CI verte
 - Restant pour « prod-ready » complet : TLS/HTTPS (reverse proxy documenté), dashboards Grafana à brancher, PAT GitHub toujours à révoquer
+
+---
+Task ID: 7
+Agent: Super Z (main)
+Task: Guide de démarrage pas-à-pas YahriaCad en PDF (style tech sombre, 8-12 p., public owner)
+
+Work Log:
+- Chargé skill pdf complet (SKILL.md → creative-flow.md → fonts/overflow/pagination/typography/palette/cover/cover-backgrounds/charts)
+- Clarifications utilisateur : public = owner, périmètre complet app, 8-12 pages, tech sombre, endpoints+archi+checklist+dépannage, niveau intermédiaire
+- Faits collectés dans le repo : router.go (endpoints), Makefile, docker-compose (ports, admin:admin, WITH_TORCH), config.go (YAHRIACAD_*), auth_handler, worklog (benchmark réel A* 592.70 vs RL 49.72)
+- HTML creative-flow 720×1020 : couverture (traces PCB cuivre SVG ≤6%), 10 sections (démarrage, archi CSS 6 nœuds, parcours, routage IA, Arena, vérifs, exports, API, dépannage, checklist) + ending
+- Pièges résolus : KaTeX auto-injecté par les $ des prompts (stub renderMathInElement), Google Fonts inaccessibles en Chromium headless (subset fonttools + data URI inline), Paged.js ne fetch pas les CSS file:// (inline), emoji ⚡/🧪 remplacés par SVG inline cuivre, œ/→ ajoutés au subset, · liés par nbsp (règle ponctuation), grande table API laissée splittable (>8 lignes + thead répété), page 11 orpheline densifiée (mémo make + observabilité, 8,5%→54,6%)
+- Validation : poster_validate (HTML OK ; cover_validate = faux positifs hors couverture, couverture vérifiée 0 collision), pdf_qa.py final = PASS intégral, 0 U+FFFD, polices 100% Inter/JetBrainsMono embarquées, remplissage 54-92% par page
+- Métadonnées PDF : Title/Author/Creator/Subject
+
+Stage Summary:
+- Livrés : download/yahriacad-guide-demarrage.pdf (12 p., 219 Ko, vectoriel) + yahriacad-guide-demarrage.html (source autonome, polices embarquées) + fonts/ (assets)
+- Décisions : style tech sombre famille cuivre unique (~35°), drapeaux cover_validate hors couverture ignorés (outil cover-only, faux positifs documentés), emojis UI remplacés par SVG vectoriels
+- Rappel sécurité réitéré dans le guide (PAT GitHub à révoquer)

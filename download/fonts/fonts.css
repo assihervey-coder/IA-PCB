@@ -1,0 +1,70 @@
+/* Inter 300 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 300;
+  src: url(Inter-300.ttf) format('truetype');
+}
+/* Inter 400 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  src: url(Inter-400.ttf) format('truetype');
+}
+/* Inter 500 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 500;
+  src: url(Inter-500.ttf) format('truetype');
+}
+/* Inter 600 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  src: url(Inter-600.ttf) format('truetype');
+}
+/* Inter 700 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 700;
+  src: url(Inter-700.ttf) format('truetype');
+}
+/* Inter 800 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 800;
+  src: url(Inter-800.ttf) format('truetype');
+}
+/* Inter 900 */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 900;
+  src: url(Inter-900.ttf) format('truetype');
+}
+/* JetBrains Mono 400 */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400;
+  src: url(JetBrainsMono-400.ttf) format('truetype');
+}
+/* JetBrains Mono 500 */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 500;
+  src: url(JetBrainsMono-500.ttf) format('truetype');
+}
+/* JetBrains Mono 700 */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 700;
+  src: url(JetBrainsMono-700.ttf) format('truetype');
+}
