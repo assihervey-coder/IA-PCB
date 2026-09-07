@@ -128,6 +128,7 @@ func main() {
 	netClassSvc := layoutapp.NewNetClassService(repo)
 	collabSvc := collabapp.NewService(repo, hub, cfg.DataDir, log)
 	demoSvc := demoapp.NewService(repo, log)
+	impedanceSvc := verificationapp.NewImpedanceService(repo)
 
 	handler := rest.NewRouter(rest.Deps{
 		Projects:    repo,
@@ -151,6 +152,7 @@ func main() {
 		NetClasses:  netClassSvc,
 		Collab:      collabSvc,
 		Demo:        demoSvc,
+		Impedance:   impedanceSvc,
 		Gerber:      gerberSvc,
 		BOM:         bomSvc,
 		STEP:        stepSvc,

@@ -22,13 +22,16 @@ import (
 
 // SI material constants (FR4 stackup, sane industry defaults).
 const (
-	siEr           = 4.2 // permittivity relative FR4
-	siH            = 0.2 // prepreg thickness above reference plane (mm)
-	siTraceHeight  = 0.035
-	siPropagationC = 299.792458 // mm/ps — speed of light (vacuum)
-	siRiseTimePS   = 500.0      // driver rise time assumed (1 Gbps-ish)
-	siViaStubPS    = 12.0       // reflection penalty per via (ps, lumped)
-	siBitPeriodPS  = 1000.0     // UI at 1 Gbps
+	siEr          = 4.2 // permittivity relative FR4
+	siH           = 0.2 // prepreg thickness above reference plane (mm)
+	siTraceHeight = 0.035
+	// Speed of light in mm PER PICOSECOND (0.2998 mm/ps ≈ 299.8 mm/ns).
+	// Before 2026-09 the value was 299.79 "mm/ps" (actually mm/ns), which
+	// made every propagation delay 1000× too small.
+	siPropagationC = 0.299792458
+	siRiseTimePS   = 500.0  // driver rise time assumed (1 Gbps-ish)
+	siViaStubPS    = 12.0   // reflection penalty per via (ps, lumped)
+	siBitPeriodPS  = 1000.0 // UI at 1 Gbps
 )
 
 // SICriticality qualifies the verdict of a net.
@@ -81,15 +84,20 @@ func NewSIChecker(projects domainproject.Repository) *SIChecker {
 }
 
 // microstripZ0 returns the characteristic impedance of an outer-layer
-// microstrip ( mm trace width, mm dielectric height), IPC-2141 style
-// closed form — good to ~5% for 0.1..0.6 mm traces on 0.2 mm prepreg.
+// microstrip (mm trace width, mm dielectric height), IPC-2141 closed form:
+//
+//	w/h ≥ 1 : Z0 = 87/√(Er+1.41) · ln(5.98·h / (0.8·w + t))
+//	w/h < 1 : Z0 = 60/√Er        · ln(8·h   / (0.8·w + t))
+//
+// Good to a few percent for 0.08..1.2 mm traces on 0.2 mm prepreg
+// (ex. 0.25 mm → ≈ 60 Ω, 0.1 mm → ≈ 68 Ω). The argument of the logarithm
+// crosses 1 near w ≈ 1.45 mm: beyond, the model is out of range.
 func microstripZ0(widthMM, heightMM float64) float64 {
 	w, h := math.Max(0.05, widthMM), math.Max(0.05, heightMM)
-	wh := w / h
-	if wh >= 1.0 {
-		return 87.0 / (wh + 1.41) * math.Log10(5.98*h/(0.8*w+siTraceHeight))
+	if w/h >= 1.0 {
+		return 87.0 / math.Sqrt(siEr+1.41) * math.Log(5.98*h/(0.8*w+siTraceHeight))
 	}
-	return 60.0*math.Log10(8.0*h/(0.8*w+siTraceHeight))/(wh+0.1+0.001) + 20
+	return 60.0 / math.Sqrt(siEr) * math.Log(8.0*h/(0.8*w+siTraceHeight))
 }
 
 // Run analyses every routed net of the project.

@@ -231,6 +231,14 @@ testées et documentées dans [`docs/guides/guide-pack-wow.md`](docs/guides/guid
 Guide pas-à-pas : [`docs/guides/guide-avances.md`](docs/guides/guide-avances.md) —
 détail des contrats additifs : [`docs/architecture/contracts.md` §11](docs/architecture/contracts.md).
 
+## Extensions v0.3 — éditeur CRDT complet, impédance différentielle
+
+| Fonction | Où | Description |
+|---|---|---|
+| ⚡ Impédance différentielle par classe | `POST .../impedance` + bouton « ⚡ Impédance » | détection des paires (`X+/X-`, `X_P/X_N`, `XP/XN`), Zodd/Zeven/**Zdiff**/Zcom en microstrip couplé, écart mesuré, **skew intra-paire** (mm + ps), cible par classe (90 Ω USB, 100 Ω par défaut, surchargeable), **largeur ou écart recommandés** pour atteindre la cible |
+| 👥✏️ Éditeur CRDT (frontend) | page `pcb-layout` | les mutations de composants partent en opérations CRDT (LWW + Lamport) : **outbox persistante hors ligne** (localStorage), rattrapage automatique à la reconnexion, déduplication par op id, undo/redo **persistants côté serveur** (Ctrl+Z), barre d'état + flux d'activité distants ; les curseurs des pairs restent gérés par la couche présence |
+| 🔬 Physique corrigée | Oracle d'œil + impédance | formule microstrip IPC-2141 réparée (`87/√(Er+1.41)·ln(…)`), vitesse de propagation 0.2998 mm/ps : Z0 réalistes (0.25 mm → ≈ 60 Ω) et délais/skews en picosecondes exactes |
+
 ## Documentation
 
 - [`docs/architecture/contracts.md`](docs/architecture/contracts.md) — contrats d'interface (source de vérité)

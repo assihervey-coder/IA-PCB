@@ -20,3 +20,23 @@ Stage Summary:
 - Livré : CI GitHub Actions opérationnelle (badge README), v0.1.0 tagué, plans de masse N-couches avec couture, classes de nets + autoroutage interactif, CRDT multi-utilisateurs avec undo/redo durable, démo Auto-Healer en un curl, Doctor branché au moteur RL (sonde + répétition)
 - Décisions : pas de modification de pcb.proto (contrat figé) — le branchement Doctor↔RL passe par GetHealth + RouteBoard existants ; pours conservées sur PUT /layout ; LWW tie-break (lamport, acteur)
 - Sécurité : PAT exposé dans l'historique de chat — révoquer le token GitHub (rappel déjà émis)
+
+---
+Task ID: 2
+Agent: Super Z (main)
+Task: Analyse état vs vision + éditeur CRDT frontend + calcul d'impédance différentielle par classe de nets (repo kidcad-pro-ia → github.com/assihervey-coder/IA-PCB)
+
+Work Log:
+- Analyse complète : arborescence vision 100% implémentée + extras (arena/magic/doctor/dfm/timemachine/stats) ; tag v0.1.0, CI, README badges, pours, netclasses, CRDT backend, démo nightmare, Doctor→RL déjà livrés au Task 1
+- Impédance différentielle : application/verification/impedance.go (détection paires X+/X-, X_P/X_N, XP/XN par classe ; microstrip couplé Zodd/Zeven/Zdiff/Zcom type Bogatin ; écart cuivre-cuivre mesuré segment à segment ; skew mm+ps ; solveurs bisection largeur/écart pour atteindre la cible ; cibles par classe 90/100 Ω surchargeables), impedance_test.go (5 tests), REST POST /projects/{id}/impedance (handler + Deps + main.go)
+- Bug physique #1 corrigé : microstripZ0 (IPC-2141) divisait par (w/h+1.41) avec log10 → 0.25mm=23Ω ; désormais 87/√(Er+1.41)·ln(...) → 60Ω réaliste ; s'applique à l'Oracle d'œil
+- Bug physique #2 corrigé : siPropagationC 299.79 "mm/ps" était mm/ns → délais 1000× trop petits ; désormais 0.2998 mm/ps (skew 8mm = 42ps vérifié en smoke)
+- Éditeur CRDT frontend : lib/collab/{crdt-client.ts (CrdtEditor : outbox localStorage par projet, batch idempotent, rattrapage state?since, dédup op id LRU), apply-op.ts (fusion pure des 7 kinds, ensembles additifs dédup), use-crdt.ts (hook)} ; components/collab/CollabBar.tsx (statut + activité) ; CollabSocket dans ws-client.ts ; page pcb-layout : component.move/rotate via CRDT, undo/redo serveur persistants (Ctrl+Z), bouton ⚡ Impédance + panneau DiffImpedance.tsx ; styles globals.scss
+- Smoke HTTP réel (scripts/smoke-impedance-collab.sh) : 2 paires détectées (USB 98Ω conforme, ETH 114Ω hors bande + skew 42ps + recommandations), cible 90Ω surchargée, collab track.add + component.move → state seq=2 → undo → redo → convergence vérifiée
+- Validation : gofmt clean, go vet OK, go test -race 11 packages OK, tsc --noEmit OK, next build 10 pages OK
+- Docs : contracts.md (éditeur CRDT frontend + oracle impédance + corrections physiques), README section v0.3
+
+Stage Summary:
+- Livré : oracle d'impédance différentielle par classe de nets (backend+UI), éditeur CRDT complet côté frontend (outbox offline, rattrapage, undo/redo serveur), 2 bugs de physique SI corrigés
+- Décisions : endpoint POST impedance (corps optionnel), paires déduites des pistes si pas de schéma, clamp largeur 1.2mm (domaine de validité microstrip)
+- Reste : push (2 commits en avance dont d033764), PAT GitHub à révoquer (déjà signalé)

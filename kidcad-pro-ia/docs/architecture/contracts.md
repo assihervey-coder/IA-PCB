@@ -429,3 +429,49 @@ Scénario de démonstration complet :
   et, quand des nets restent non routés, une `rehearsal` : le moteur route
   ces nets en **sandbox** (rien n'est persisté) et le rapport prédit
   « X/Y nets routables, Z mm de cuivre » avec une ordonnance chiffrée.
+
+### Éditeur CRDT côté frontend (v0.3)
+
+Le frontend embarque maintenant l'**éditeur collaboratif** qui consomme les
+endpoints ci-dessus :
+
+- `frontend/src/lib/collab/crdt-client.ts` — `CrdtEditor` : outbox
+  persistante (localStorage, par projet), envoi par lots idempotents
+  (`client_id`), rattrapage `GET .../collab/state?since=seq` à l'ouverture
+  et à chaque reconnexion WS, déduplication par op id (une op renvoyée par
+  le broadcast n'est jamais ré-appliquée).
+- `frontend/src/lib/collab/apply-op.ts` — fusion pure d'une op distante dans
+  le `LayoutData` local (les 7 kinds du vocabulaire, ensembles additifs
+  dédupliqués pour le cuivre).
+- `frontend/src/lib/collab/use-crdt.ts` — hook React (`send`, `undo`, `redo`,
+  statut, ops en attente, flux d'activité) ; désactivé en mode démo.
+- `frontend/src/app/components/collab/CollabBar.tsx` — barre d'état
+  (synchronisé / N ops en attente / hors ligne) + activité distante.
+- Sur la page `pcb-layout` : les mutations de composants partent en ops CRDT
+  (`component.move`, `component.rotate`) quand la collaboration est active ;
+  sinon repli historique : PUT /layout. Undo/redo (Ctrl+Z / Ctrl+Maj+Z)
+  délèguent aux piles serveur persistantes quand la collab est active.
+- `frontend/src/lib/api/ws-client.ts` — `CollabSocket` : canal WS type
+  `"collab"` + signal de rattrapage après reconnexion.
+
+### Oracle d'impédance différentielle (v0.3)
+
+| Route | Rôle |
+|---|---|
+| `POST /api/v1/projects/{id}/impedance` | analyse des paires différentielles **par classe de nets** |
+
+Corps optionnel : `{"targets": {"high-speed": 90}, "gap_mm": 0.2,
+"tolerance_pct": 10}` (défauts : cible 100 Ω, 90 Ω si la classe contient
+« usb », tolérance ±10 %). Réponse : par classe, chaque paire détectée avec
+`z0/zodd/zeven/zdiff/zcom` (microstrip couplé, forme close type Bogatin),
+écart mesuré cuivre à cuivre, longueur + skew intra-paire (mm et ps),
+conformité à la bande, **largeur recommandée** à écart constant et **écart
+recommandé** à largeur constante pour atteindre la cible.
+
+Détection des paires : conventions de nommage `X+/X-`, `X_P/X_N`, `XP/XN`
+(dans une même classe). Sans schéma importé, les classes sont déduites des
+pistes routées (classe `default`). La correction de la formule microstrip
+IPC-2141 (division par √(Er+1.41) et logarithme népérien) et de la vitesse
+de propagation (0.2998 mm/ps) s'applique aussi à l'Oracle d'œil : une piste
+0.25 mm sur 0.2 mm de prépreg affiche désormais ≈ 60 Ω (valeur réaliste) et
+les délais/skews sont en picosecondes exactes.

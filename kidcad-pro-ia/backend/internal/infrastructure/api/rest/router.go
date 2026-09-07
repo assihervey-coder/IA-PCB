@@ -55,6 +55,7 @@ type Deps struct {
 	NetClasses  *layoutapp.NetClassService
 	Collab      *collabapp.Service
 	Demo        *demoapp.Service
+	Impedance   *verificationapp.ImpedanceService
 	Gerber      *exportapp.GerberService
 	BOM         *exportapp.BOMService
 	STEP        *exportapp.STEPService
@@ -121,6 +122,7 @@ func NewRouter(d Deps) http.Handler {
 	mux.HandleFunc("POST /api/v1/projects/{id}/magic", d.handleMagic)
 	mux.HandleFunc("POST /api/v1/projects/{id}/thermal", d.handleThermal)
 	mux.HandleFunc("POST /api/v1/projects/{id}/si", d.handleSI)
+	mux.HandleFunc("POST /api/v1/projects/{id}/impedance", d.handleImpedance)
 	mux.HandleFunc("POST /api/v1/projects/{id}/arena", d.handleArena)
 	mux.HandleFunc("GET /api/v1/arena/leaderboard", d.handleArenaLeaderboard)
 

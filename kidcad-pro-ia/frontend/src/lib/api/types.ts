@@ -629,3 +629,147 @@ export interface PresenceMessage {
   cursor: PresenceCursor;
   tool: string;
 }
+
+// --- Collaboration CRDT (REST + WebSocket, additif) ----------------
+
+export type CollabOpKind =
+  | "component.move"
+  | "component.rotate"
+  | "track.add"
+  | "track.remove"
+  | "via.add"
+  | "via.remove"
+  | "constraint.width";
+
+export interface CollabPoint {
+  x: number;
+  y: number;
+}
+
+/** Union plate des payloads (seuls les champs utiles au kind sont lus). */
+export interface CollabPayload {
+  x?: number;
+  y?: number;
+  rotation?: number;
+  net?: string;
+  layer?: number;
+  width?: number;
+  points?: CollabPoint[];
+  from_layer?: number;
+  to_layer?: number;
+  diameter?: number;
+  drill?: number;
+  mm?: number;
+  net_class?: string;
+}
+
+export interface CollabOp {
+  id: string;
+  actor: string;
+  lamport: number;
+  kind: CollabOpKind;
+  target?: string;
+  payload: CollabPayload;
+  at: string;
+}
+
+export interface CollabOpRequest {
+  client_id?: string;
+  lamport?: number;
+  kind: CollabOpKind;
+  target?: string;
+  payload: CollabPayload;
+}
+
+export interface CollabApplyResult {
+  project_id: string;
+  actor: string;
+  applied: number;
+  seq: number;
+  ops: CollabOp[];
+  rejected: Array<{ client_id?: string; kind: string; reason: string }>;
+}
+
+/** Entrée du journal renvoyée par GET .../collab/state?since=N. */
+export interface CollabLogEntry {
+  seq: number;
+  op: CollabOp;
+  applied: boolean;
+}
+
+export interface CollabState {
+  project_id: string;
+  seq: number;
+  clock: Record<string, number>;
+  ops?: CollabLogEntry[];
+}
+
+export interface CollabUndoResult {
+  actor: string;
+  undone: boolean;
+  op?: CollabOp;
+  reason?: string;
+}
+
+/** Événement « collab » diffusé sur /ws/v1/progress. */
+export interface CollabWsMessage {
+  type: "collab";
+  project_id: string;
+  op: CollabOp;
+  seq: number;
+}
+
+// --- Impédance différentielle (additif) ----------------------------
+
+export interface DiffPairReport {
+  net_plus: string;
+  net_minus: string;
+  net_class: string;
+  routed: boolean;
+  width_mm: number;
+  gap_mm: number;
+  length_plus_mm: number;
+  length_minus_mm: number;
+  skew_mm: number;
+  skew_ps: number;
+  z0_ohms: number;
+  zodd_ohms: number;
+  zeven_ohms: number;
+  zdiff_ohms: number;
+  zcom_ohms: number;
+  target_ohms: number;
+  error_pct: number;
+  in_tolerance: boolean;
+  recommended_width_mm: number;
+  recommended_gap_mm: number;
+  criticality: SICriticality;
+  advices: string[];
+}
+
+export interface DiffClassReport {
+  class: string;
+  target_ohms: number;
+  pairs: DiffPairReport[];
+}
+
+export interface DiffImpedanceRequest {
+  targets?: Record<string, number>;
+  gap_mm?: number;
+  tolerance_pct?: number;
+}
+
+export interface DiffImpedanceResult {
+  stackup: {
+    er_relative: number;
+    dielectric_height_mm: number;
+    copper_thickness_mm: number;
+    propagation_mm_per_ps: number;
+  };
+  tolerance_pct: number;
+  analyzed_pairs: number;
+  in_tolerance_count: number;
+  worst_pair: string;
+  summary: string;
+  classes: DiffClassReport[];
+  duration_ms: number;
+}

@@ -8,7 +8,13 @@ import type {
   ArenaReport,
   ArenaStanding,
   AutoFixResult,
+  CollabApplyResult,
+  CollabOpRequest,
+  CollabState,
+  CollabUndoResult,
   DFMEstimate,
+  DiffImpedanceRequest,
+  DiffImpedanceResult,
   DRCResult,
   DoctorReport,
   ERCResult,
@@ -258,6 +264,49 @@ export const api = {
   /** Stats live — tableau de bord statistique du design. */
   async stats(projectId: string): Promise<StatsReport> {
     const res = await http.get<StatsReport>(`/projects/${id(projectId)}/stats`);
+    return res.data;
+  },
+
+  // ------------------------------------------------------------
+  // Collaboration CRDT (additif)
+  // ------------------------------------------------------------
+
+  /** Applique un lot d'opérations CRDT (idempotent par client_id). */
+  async collabOps(projectId: string, actor: string, ops: CollabOpRequest[]): Promise<CollabApplyResult> {
+    const res = await http.post<CollabApplyResult>(`/projects/${id(projectId)}/collab/ops`, {
+      actor,
+      ops,
+    });
+    return res.data;
+  },
+
+  /** Séquence + horloge vectorielle + rattrapage du journal depuis since. */
+  async collabState(projectId: string, since = -1): Promise<CollabState> {
+    const res = await http.get<CollabState>(`/projects/${id(projectId)}/collab/state`, {
+      params: since >= 0 ? { since } : undefined,
+    });
+    return res.data;
+  },
+
+  /** Annule la dernière op de l'acteur (historique persistant côté serveur). */
+  async collabUndo(projectId: string, actor: string): Promise<CollabUndoResult> {
+    const res = await http.post<CollabUndoResult>(`/projects/${id(projectId)}/collab/undo`, { actor });
+    return res.data;
+  },
+
+  /** Rétablit la dernière op annulée de l'acteur. */
+  async collabRedo(projectId: string, actor: string): Promise<CollabUndoResult> {
+    const res = await http.post<CollabUndoResult>(`/projects/${id(projectId)}/collab/redo`, { actor });
+    return res.data;
+  },
+
+  // ------------------------------------------------------------
+  // Impédance différentielle (additif)
+  // ------------------------------------------------------------
+
+  /** Oracle d'impédance différentielle — paires détectées par classe de nets. */
+  async impedance(projectId: string, payload: DiffImpedanceRequest = {}): Promise<DiffImpedanceResult> {
+    const res = await http.post<DiffImpedanceResult>(`/projects/${id(projectId)}/impedance`, payload);
     return res.data;
   },
 };

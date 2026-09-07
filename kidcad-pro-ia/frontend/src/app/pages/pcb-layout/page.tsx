@@ -12,7 +12,10 @@ import { DesignDoctor } from "@/app/components/wow/DesignDoctor";
 import { DFMOracle } from "@/app/components/wow/DFMOracle";
 import { TimeMachine } from "@/app/components/wow/TimeMachine";
 import { StatsPanel } from "@/app/components/wow/StatsPanel";
+import { DiffImpedance } from "@/app/components/wow/DiffImpedance";
 import { PresenceLayer } from "@/app/components/presence/PresenceLayer";
+import { CollabBar } from "@/app/components/collab/CollabBar";
+import { useCrdt } from "@/lib/collab/use-crdt";
 import {
   ComponentPropertiesForm,
   type ComponentPropertiesPatch,
@@ -170,7 +173,11 @@ export default function PcbLayoutPage() {
   const [showDFM, setShowDFM] = useState(false);
   const [showTimeMachine, setShowTimeMachine] = useState(false);
   const [showStats, setShowStats] = useState(false);
+  const [showImpedance, setShowImpedance] = useState(false);
   const [autoFix, setAutoFix] = useState<AutoFixResult | null>(null);
+
+  // Édition collaborative CRDT (outbox offline + WS + undo/redo serveur).
+  const crdt = useCrdt(projectId, demoMode);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const viewRef = useRef<PanZoom>({ offsetX: 0, offsetY: 0, scale: 10 });
@@ -598,6 +605,23 @@ export default function PcbLayoutPage() {
   };
 
   const handleUndo = () => {
+    // Historique collaboratif persistant (CRDT serveur) quand actif.
+    if (crdt.active) {
+      void (async () => {
+        const res = await crdt.undo();
+        if (!res) {
+          pushToast("Annulation impossible (hors ligne ?)", "error");
+          return;
+        }
+        if (!res.undone) {
+          pushToast(res.reason ?? "Rien à annuler.", "info");
+          return;
+        }
+        await refreshLayout(projectId ?? undefined);
+        pushToast("Annulé (historique collaboratif).", "success");
+      })();
+      return;
+    }
     if (historyPast.length === 0) {
       pushToast("Rien à annuler.", "info");
       return;
@@ -606,6 +630,22 @@ export default function PcbLayoutPage() {
   };
 
   const handleRedo = () => {
+    if (crdt.active) {
+      void (async () => {
+        const res = await crdt.redo();
+        if (!res) {
+          pushToast("Rétablissement impossible (hors ligne ?)", "error");
+          return;
+        }
+        if (!res.undone) {
+          pushToast(res.reason ?? "Rien à rétablir.", "info");
+          return;
+        }
+        await refreshLayout(projectId ?? undefined);
+        pushToast("Rétabli (historique collaboratif).", "success");
+      })();
+      return;
+    }
     if (historyFuture.length === 0) {
       pushToast("Rien à rétablir.", "info");
       return;
@@ -651,6 +691,21 @@ export default function PcbLayoutPage() {
     };
     useProjectStore.setState({ layout: next });
     setSelected(null);
+
+    // Édition collaborative : les mutations partent en opérations CRDT
+    // (registres LWW, broadcast WebSocket, undo/redo persistant) plutôt
+    // qu'un PUT brutal qui écraserait les edits des autres collaborateurs.
+    if (crdt.active && projectId) {
+      if (patch.x !== selected.x || patch.y !== selected.y) {
+        crdt.send("component.move", { x: patch.x, y: patch.y }, selected.ref);
+      }
+      if (patch.rotation !== selected.rotation) {
+        crdt.send("component.rotate", { rotation: patch.rotation }, selected.ref);
+      }
+      pushToast("Composant mis à jour et partagé aux collaborateurs.", "success");
+      return;
+    }
+
     if (projectId && !demoMode) {
       try {
         await api.putLayout(projectId, next);
@@ -789,6 +844,14 @@ export default function PcbLayoutPage() {
             <Button
               size="sm"
               variant="secondary"
+              onClick={() => setShowImpedance(true)}
+              title="Impédance différentielle par classe de nets (Zdiff, skew, largeur/écart recommandés)"
+            >
+              ⚡ Impédance
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
               onClick={() => setShowTimeMachine(true)}
               title="Instantanés, diff et restauration"
             >
@@ -832,6 +895,9 @@ export default function PcbLayoutPage() {
             </Button>
             <span className="zoom-label">{percentFormat(zoomLabel)}</span>
           </div>
+
+          {/* Barre d'édition collaborative CRDT (statut + activité). */}
+          {projectId && !demoMode ? <CollabBar crdt={crdt} /> : null}
 
           <canvas
             ref={canvasRef}
@@ -955,6 +1021,7 @@ export default function PcbLayoutPage() {
 
       {showDoctor ? <DesignDoctor onClose={() => setShowDoctor(false)} /> : null}
       {showDFM ? <DFMOracle onClose={() => setShowDFM(false)} /> : null}
+      {showImpedance ? <DiffImpedance onClose={() => setShowImpedance(false)} /> : null}
       {showTimeMachine ? <TimeMachine onClose={() => setShowTimeMachine(false)} /> : null}
     </div>
   );
