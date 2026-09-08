@@ -469,3 +469,24 @@ Stage Summary:
 - YahriaCad route maintenant en RL sur 2 ET 4 couches (registre extensible à N couches : ajouter un chemin dans model_paths suffit).
 - KiCad 6→10 confirmé par tests (déjà en place).
 - Roadmap RL 4L : rondes DAgger supplémentaires depuis la politique 30 %, curriculum 0,25 mm plus dense, éventuel fine-tune PPO.
+
+---
+Task ID: 20
+Agent: Super Z (main)
+Task: Ronde DAgger #2 depuis la politique 4L actuelle (recette v6) — collecte on-policy, merge pondéré, fine-tune cumulatif, éval comparative, déploiement live
+
+Work Log:
+- Baseline scriptée et VERSIONNÉE (scripts/eval_bc_4l.py, l'éval Task 19 était ad-hoc) : one-shot leg1 sans repli, cartes réalistes NON vues 46000/46001, rollout cap 300 (13,6 ms/forward mesuré, cap 600 = éval infranchissable), 2 threads. Baseline model_bc_4l.pt : s46000 6/58 (10,3 %), s46001 8/69 (11,6 %) → 14/127 = 11,0 %.
+- Collecte DAgger #2 depuis la politique ACTUELLE (leçon Task 19 : jamais depuis un checkpoint faible) : scripts/dagger_round_4l.py réécrit (modèle/seed/count/cap en argv, trace print AVANT collecte, sauvegarde par lot crash-safe) — 7 cartes (44000..44005, 44007 ; 44006 = 75 nets sur la plus grande grille, > 590 s même à cap 250 → sautée), 389 démos / 29 141 pas.
+- Pièges collecte : le faucheur peut tuer un appel long SANS trace (exit 124 masqué par le pipe tail — toujours afficher EXIT=$? et printer avant la 1re carte) ; meta[row][4] = nombre de pas (l'index 3 est un offset, première lecture fausse de 23×).
+- Merge stageB + DAgger×2 (merge_demos, chemins dupliqués = upsample) → demos_4l_v2.npz, 1874 démos / 143 096 pas (DAgger 40,7 % du mix ; étiquettes A* correctes par construction, états on-policy sous-représentés dans l'expert pur — ratio cohérent DAgger standard).
+- Fine-tune cumulatif 3 passes × 300 s lr 5e-5 --init-from chainé : loss 1,01 → 0,83 → 0,69, acc train 0,387 → 0,432 → model_bc_4l_v2.pt (1 397 817 params).
+- Éval comparative (même protocole) : v2 = s46000 8/58 (13,8 %), s46001 10/69 (14,5 %) → 18/127 = 14,2 % (+3,1 pts vs baseline).
+- Expérience anti-ship : 2 passes SUPPLÉMENTAIRES (p4, p5) → loss 0,53 mais éval retombe à 13/127 = 10,2 % (s46000 6,9 %) — l'overfitting du mix pondéré dégrade la généralisation. LEÇON : s'arrêter à 3 passes sur ce mix ; le loss seul ne prédit pas le one-shot.
+- Ship v2 : backup model_bc_4l_pre_dag2.pt (local, gitigné), remplacement model_bc_4l.pt in place, hot-reload gRPC chemin explicite → « 2 modele(s) charge(s) (canaux 6, 8) — primaire model_bc_4l.pt ». Test live : 4L 4/4 nets 5,5 s 12 vias RL engagé, 2L 4/4 nets 5,1 s 4 vias RL engagé. pytest ai-engine 9/9.
+- Versionnage : model_bc_4l.pt (nouveau) + demos_4l_v2.npz + scripts (eval_bc_4l.py, dagger_round_4l.py). Les p1/p2/p4/p5 et les lots r*.npz restent locaux (intermédiaires).
+
+Stage Summary:
+- Ronde DAgger complète depuis la politique actuelle : 11,0 % → 14,2 % one-shot sur cartes non vues (+3,1 pts) — gain réel mais modeste ; en production la complétude reste garantie par chaînage A*, le gain réduit la charge A*.
+- Protocole d'éval reproductible versionné (eval_bc_4l.py) : toute itération future se juge sur s46000/46001, cap 300, 2 threads.
+- Roadmap : ronde DAgger #3 depuis v2 avec mix ×1 (le ×2 + passes longues surapprend), curriculum 0,25 mm plus dense, éventuel fine-tune PPO sur récompense réelle ; envisager l'éval sur 3e seed (46002) pour resserrer la variance ±3 pts.
