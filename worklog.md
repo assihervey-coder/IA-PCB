@@ -509,3 +509,24 @@ Stage Summary:
 - Le routeur 4 couches passe de 11 % (baseline BC) à 23,6 % one-shot (BC + PPO 13k pas) — la marche PPO est LE levier, la boucle BC/DAgger est saturée.
 - train.py supporte désormais --layers N : le fine-tune PPO est disponible pour toute profondeur du registre.
 - Roadmap PPO (prochaine task) : ~30-50 chunks de 4k pas (7 min/chunk au premier plan), eval tous les 5 chunks, seed tournante 44→49 pour la diversité ; surveiller l'entropie (effondrement de politique) ; envisager --save-every pour des checkpoints intermédiaires résistants aux coupes.
+
+---
+Task ID: 22
+Agent: Super Z (main)
+Task: Campagne PPO — chunks 4L (bloc A + entropie), pivot 2L v6, ships
+
+Work Log:
+- Outillage : entropie ajoutée à la ligne de log PPO (ppo_agent.py, déjà suivie en history) ; scripts/ppo_chunk_4l.sh (wrapper recette Task 21) ; eval_bc_4l.py paramétré --layers (éval N couches, canaux = layers+4).
+- ⚠️ INCIDENT ÉVITÉ : la rotation de seeds prévue 44→49 mettait la seed 46 = cartes 46000+ = CARTES D'ÉVAL (contamination frauduleuse). Rotation corrigée : 47, 48, 49, 44, 45 — la 46 est bannie. Le piège général : seed s → cartes s*1000+k ; TOUT seed dont s*1000 tombe dans 46000+ est interdit.
+- Piège Bash récurrent : EXIT masqué par le pipe (grep|tail renvoie 0 même si le process est tué) → toujours PIPESTATUS ou log fichier + EXIT=$? direct. Un chunk seed 46 a été tué à 585 s sans checkpoint (les cartes eval sont les plus grosses).
+- 4L bloc A (c4-c8, seeds 47/48/49/44/45, 20k pas) : récompenses 35-47 oscillantes, ÉVAL 23,6 % = identique à c3 — zéro gain. Entropie loguée : effondrement 0,0013 → 0,0000 (politique déterministe = plus d'exploration = plateau).
+- Expérience ré-injection (c9ent, ent-coef 0.02 depuis c3) : entropie 0 → 0,08, récompense maintenue 48,1, mais ÉVAL toujours 23,6 % (les MÊMES 30/127 nets). PLAFOND STRUCTUREL 4L confirmé : architecture 1,4M params / obs 8 canaux ; l'exploration ne crée pas de nouvelles capacités. Champion c3 inchangé.
+- Baseline v6 2L standardisée (jamais mesurée sur ce protocole) : 19,7 % (25/127 ; s46000 19,0 %, s46001 20,3 %) — le « 50 % » historique Task 19 était un autre protocole (2 étages). Le protocole unifié (one-shot, cap 300, seeds 46000/46001) devient la référence.
+- PPO 2L (recette identique : lr 1e-4, ent 0,005, vf 0,05, epochs 2, rollout 64, chunks 4k, seeds 44/45/47) : récompense 5,3 → 38,3 → 46,2, entropie 1,01 → 0 (effondrement plus rapide qu'en 4L). ÉVAL d3 : 22,4 %/24,6 % = 23,6 % → +3,9 pts vs baseline v6.
+- SHIP : model_2l_ppo_d3.pt → model_bc_v6.pt (backup model_bc_v6_bc_shipped.pt local), hot-reload « 2 modèles (canaux 6, 8) », live 4L 4/4 + 2L 4/4 RL engagé, pytest 9/9.
+- Motif transversal : 4L et 2L convergent vers ~23,6 % (30/127) — plafond partagé, probablement limité par l'architecture commune (1,4M params, même tronc conv) et/ou les nets « faciles » des cartes d'éval.
+
+Stage Summary:
+- Les DEUX profondeurs tournent désormais sur des politiques PPO fine-tunées : 4L 23,6 % (c3, Task 21), 2L 23,6 % (d3, cette task) — vs baselines BC 11,0 % et 19,7 %.
+- La campagne PPO est CLOSE à ce régime : chunks post-effondrement inutiles, ré-injection d'entropie sans effet éval. Prochain levier réel : l'ARCHITECTURE (plus de params/canaux, attention ?) ou l'observation (features de congestion), pas plus de pas PPO.
+- Recette PPO réutilisable documentée (train.py --layers N + ppo_chunk_4l.sh + eval paramétré) : toute future profondeur du registre peut être fine-tunée en ~3 chunks + éval.

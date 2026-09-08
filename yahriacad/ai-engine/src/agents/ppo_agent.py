@@ -486,7 +486,8 @@ class PPOTrainer:
                     f"ppo: steps={steps_done}/{self.total_steps} "
                     f"reward={mean_reward:.2f} "
                     f"policy_loss={stats.get('policy_loss', 0.0):.4f} "
-                    f"value_loss={stats.get('value_loss', 0.0):.4f}"
+                    f"value_loss={stats.get('value_loss', 0.0):.4f} "
+                    f"entropy={stats.get('entropy', 0.0):.4f}"
                 )
             env = self.env_factory()
         return self.history

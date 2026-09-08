@@ -13,7 +13,8 @@ Protocole (fixé au Task 20, réutilisable pour toute itération) :
     pas à 13,6 ms/forward et l'éval devient infranchissable — mesuré) ;
   - métriques secondaires : vias et longueur des routes complétées.
 
-Usage : python3 eval_bc_4l.py <model.pt> [seed ...]   (défaut 46000 46001 46002)
+Usage : python3 eval_bc_4l.py <model.pt> [layers] [seed ...]
+        layers = 4 (défaut, canaux = layers+4) ; ex. 2L : eval_bc_4l.py model.pt 2 46000
 Conseil : UNE seed par invocation (~3-4 min/carte au premier plan).
 Sortie : JSON sur stdout (parseable), résumé lisible sur stderr.
 """
@@ -35,12 +36,13 @@ torch.set_num_threads(2)  # cgroup restreint : l'oversubscription ralentit les p
 
 def main() -> int:
     model = sys.argv[1] if len(sys.argv) > 1 else str(ROOT / "training/router/model_bc_4l.pt")
-    seeds = [int(s) for s in sys.argv[2:]] or [46000, 46001, 46002]
+    layers = int(sys.argv[2]) if len(sys.argv) > 2 else 4
+    seeds = [int(s) for s in sys.argv[3:]] or [46000, 46001, 46002]
 
-    agent = load_ppo_agent(model, in_channels=8)
-    report = {"model": model, "boards": [], "total_nets": 0, "total_one_shot": 0}
+    agent = load_ppo_agent(model, in_channels=layers + 4)
+    report = {"model": model, "layers": layers, "boards": [], "total_nets": 0, "total_one_shot": 0}
     for seed in seeds:
-        board, nets = make_realistic_board(seed, layer_count=4)
+        board, nets = make_realistic_board(seed, layer_count=layers)
         env = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=1, seed=seed))
         env.max_steps = min(int(env.max_steps), ROLLOUT_CAP)
         one_shot = 0
