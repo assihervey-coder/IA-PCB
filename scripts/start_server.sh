@@ -28,6 +28,14 @@ python3 -c "import socket; s=socket.create_connection(('127.0.0.1',50051),1); s.
 
 echo "=== 1. Compilation du backend (HEAD) ==="
 cd "$REPO"
+# Toolchain Go : emplacements connus (toolchain externe OU local persistant .tools/go)
+if ! command -v go >/dev/null 2>&1; then
+  for GD in /home/z/toolchain/go /home/z/my-project/.tools/go; do
+    [ -x "$GD/bin/go" ] && export PATH="$GD/bin:$GD/packages/bin:$PATH" && break
+  done
+fi
+command -v go >/dev/null 2>&1 || { echo "go introuvable (installer dans .tools/go)"; exit 1; }
+echo "  toolchain : $(command -v go) [$(go version | awk '{print $3}')]"
 go build -o "$BIN" ./backend/cmd/yahriacad-server/ || { echo "COMPILATION KO"; exit 1; }
 echo "  binaire prêt : $BIN"
 
