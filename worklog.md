@@ -410,3 +410,21 @@ Stage Summary:
 - Round-trip prouvé fidèle au point près + netlist ; 2 vrais bugs de côté de pads corrigés avec tests de régression (5a1d776, CI verte).
 - Projets RT-DEMO4-roundtrip / RT-DEMO3-roundtrip visibles dans l'UI (http://localhost:3000/pages/project-manager, admin/admin) pour inspection.
 - Scripts réutilisables : scripts/roundtrip_test.py (vérif fidélité), scripts/rt_diag.py (diagnostic segments).
+
+---
+Task ID: 17
+Agent: Super Z (main)
+Task: Commit tout et Push (committer l'intégralité et pousser)
+
+Work Log:
+- État initial : arbre propre, 1 commit local en avance (f5a0176, nom UUID auto) contenant scripts/roundtrip_test.py + rt_diag.py, preuves tmp-rt/, worklog Task 16.
+- Découverte structure : dépôt git UNIQUE à /home/z/my-project (racine worktree), yahriacad/ = sous-répertoire ; remote origin = github.com/assihervey-coder/YahriaCad. ( piège : les pathspecs git sont relatifs au cwd — exécuter les git commands depuis la racine ).
+- Purge : 22 fichiers tool-results/ accumulés depuis les premiers commits UUID + 4 tarballs tmp-rt/*.tgz (régénérables via roundtrip_test.py) retirés de l'index ; .gitignore enrichi (tool-results/, tmp-rt/*.tgz).
+- Amend f5a0176 → 5e587ff avec message conventionnel « test(kicad): scripts round-trip + preuves de fidélité DEMO3/DEMO4 ».
+- Vérif CI-safe avant push : pytest tourne avec working-directory: yahriacad → scripts/ racine jamais collecté ; roundtrip_test.py autonome (serveur live requis), aucune fonction test_*.
+- Push 5a1d776..5e587ff main→main OK ; CI GitHub verte (completed success).
+
+Stage Summary:
+- origin/main = 5e587ff, arbre local 100% synchronisé, CI verte.
+- Dépôt purgé des artefacts d'outils internes ; .gitignore protège contre la ré-accumulation.
+- Scripts round-trip + preuves de fidélité désormais versionnés sur GitHub.
