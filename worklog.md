@@ -490,3 +490,22 @@ Stage Summary:
 - Ronde DAgger complète depuis la politique actuelle : 11,0 % → 14,2 % one-shot sur cartes non vues (+3,1 pts) — gain réel mais modeste ; en production la complétude reste garantie par chaînage A*, le gain réduit la charge A*.
 - Protocole d'éval reproductible versionné (eval_bc_4l.py) : toute itération future se juge sur s46000/46001, cap 300, 2 threads.
 - Roadmap : ronde DAgger #3 depuis v2 avec mix ×1 (le ×2 + passes longues surapprend), curriculum 0,25 mm plus dense, éventuel fine-tune PPO sur récompense réelle ; envisager l'éval sur 3e seed (46002) pour resserrer la variance ±3 pts.
+
+---
+Task ID: 21
+Agent: Super Z (main)
+Task: Pistes 1+2+3 — DAgger #3 (mix ×1, cartes neuves) puis bascule PPO sur récompense réelle
+
+Work Log:
+- DAgger #3 depuis v2 sur cartes JAMAIS DAgger'd (synthèse pistes 1+2 : enrichissement d'états sans toucher au générateur) : 5 cartes (44008-44012 ; 44013 74 nets et 44014 > 590 s → sautées), 281 démos / 19 648 pas, cap uniforme 250. Merge stageB ×1 → 1377 démos / 104 462 pas (DAgger 18,8 %).
+- Fine-tune 3 passes × 300 s lr 5e-5 : loss 1,42 → 0,88, acc 0,357. ÉVAL : 7,1 % (9/127 ; s46000 s'effondre à 1,7 %) → REJETÉ. Bilan BC/DAgger : le plateau est atteint — ×1 sur cartes neuves sous-entraîne (loss 0,88 > 0,69 ronde #2) et les états d'une politique à 86 % d'échec tirent vers le bas. Champion v2 conservé (14,2 %). demos_4l_v3.npz versionné pour provenance.
+- PPO (piste 3) : audit train.py → BUG bloquant : board_for() sans layer_count (PPO réaliste = 2 couches, incompatible 8 canaux). Patch --layers (probe_env + env_factory + mixed). Signature make_realistic_board(seed, layer_count) confirmée.
+- Sonde PPO : débit mesuré ~10 pas/s (épisodes jusqu'à 11 376 pas !) → chunks 4 000 pas max/appel ; un chunk 15k a été tué à 585 s SANS checkpoint (save seulement en fin de run). Recette fine-tune (aide train.py) : lr 1e-4, ent-coef 0,005, vf-coef 0,05 (tête de valeur BC aléatoire — 0,5 détruirait le tronc), epochs 2, rollout 64 (RAM).
+- Campagne courte : probe 5k puis c1/c2 (seed 44 = cartes 44000+) puis c3 (seed 45 = cartes neuves 45000+) — init-from chainé. Récompense moy : 21,6 → 45,8 → 45,8 → 49,9.
+- ÉVAL PPO c3 (protocole inchangé) : s46000 13/58 (22,4 %), s46001 17/69 (24,6 %) → 30/127 = 23,6 % : +9,4 pts vs v2, +12,6 pts vs baseline. La récompense réelle traverse : ~13k pas de PPO doublent le one-shot.
+- SHIP : model_4l_ppo_c3.pt → model_bc_4l.pt (backup v2 : model_bc_4l_v2_shipped.pt local), hot-reload « 2 modèles (canaux 6, 8) », live 4L 4/4 nets 5,8 s RL engagé + 2L 4/4 nets 4,8 s, pytest 9/9.
+
+Stage Summary:
+- Le routeur 4 couches passe de 11 % (baseline BC) à 23,6 % one-shot (BC + PPO 13k pas) — la marche PPO est LE levier, la boucle BC/DAgger est saturée.
+- train.py supporte désormais --layers N : le fine-tune PPO est disponible pour toute profondeur du registre.
+- Roadmap PPO (prochaine task) : ~30-50 chunks de 4k pas (7 min/chunk au premier plan), eval tous les 5 chunks, seed tournante 44→49 pour la diversité ; surveiller l'entropie (effondrement de politique) ; envisager --save-every pour des checkpoints intermédiaires résistants aux coupes.

@@ -56,6 +56,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--init-from", default=None,
                         help="checkpoint de départ (fine-tuning PPO depuis un "
                              "checkpoint BC — le meilleur des deux mondes)")
+    parser.add_argument("--layers", type=int, default=2,
+                        help="nombre de couches cuivre des cartes réalistes "
+                             "(défaut 2 ; 4 = curriculum 4 couches, observation "
+                             "8 canaux — doit correspondre aux canaux du "
+                             "checkpoint --init-from, torch.load est strict)")
     parser.add_argument("--board", choices=["synthetic", "realistic", "mixed"],
                         default="synthetic",
                         help="distribution d'environnements : synthetic = petites "
@@ -101,9 +106,16 @@ def main(argv: list[str] | None = None) -> int:
 
     def board_for(k: int) -> tuple:
         if args.board == "mixed":
-            maker = board_makers["realistic"] if k % 2 else board_makers["synthetic"]
-            return maker(args.seed * 1000 + k)
-        return board_makers[args.board](args.seed * 1000 + k)
+            if k % 2:
+                return board_makers["realistic"](args.seed * 1000 + k,
+                                                 layer_count=args.layers)
+            return board_makers["synthetic"](args.seed * 1000 + k,
+                                             layer_count=args.layers)
+        if args.board == "realistic":
+            return board_makers["realistic"](args.seed * 1000 + k,
+                                             layer_count=args.layers)
+        return board_makers["synthetic"](args.seed * 1000 + k,
+                                         layer_count=args.layers)
 
     probe_env = PCBRouteEnv(*board_for(0),
                             EnvConfig(clearance_cells=1, seed=args.seed))
