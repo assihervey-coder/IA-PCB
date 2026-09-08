@@ -12,6 +12,7 @@
 # ==============================================================
 set -u
 B=http://localhost:8080
+REPO=/home/z/my-project/yahriacad
 
 TOKEN=$(curl -s -X POST "$B/api/v1/auth/login" -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"admin"}' | python3 -c 'import sys,json; print(json.load(sys.stdin).get("token",""))' 2>/dev/null)
@@ -65,15 +66,22 @@ seed_kicad() { # $1=nom $2=fichier $3=max_wait_route
 echo "=== Seed des démos sur $B ==="
 seed_nightmare "DEMO1-Cauchemar-Astar" astar
 seed_nightmare "DEMO2-Cauchemar-RL" rl
-seed_kicad "DEMO3-KiCad-complex_hierarchy" /tmp/kicad-complex_hierarchy.kicad_pcb 120
-seed_kicad "DEMO4-KiCad-pic_programmer" /tmp/kicad-pic_programmer.kicad_pcb 120
-seed_kicad "DEMO5-KiCad-video-588nets" /tmp/kicad-video.kicad_pcb 90
+# Cartes KiCad de démo : versionnées dans le dépôt (yahriacad/samples/kicad/)
+# — plus de dépendance à /tmp, survivant aux redémarrages sandbox.
+seed_kicad "DEMO3-KiCad-complex_hierarchy" "$REPO/samples/kicad/complex_hierarchy.kicad_pcb" 120
+seed_kicad "DEMO4-KiCad-pic_programmer" "$REPO/samples/kicad/pic_programmer.kicad_pcb" 120
+seed_kicad "DEMO5-KiCad-video-588nets" "$REPO/samples/kicad/video.kicad_pcb" 90
 
 echo ""
 echo "=== Projets en ligne ==="
 curl -s "$B/api/v1/projects" -H "$AUTH" | python3 -c '
 import sys, json
-for p in json.load(sys.stdin):
+data = json.load(sys.stdin)
+if isinstance(data, dict):
+    data = data.get("projects", data)
+if not isinstance(data, list):
+    data = []
+for p in data:
     print("  {}  {}  [{}]".format(p.get("id","?")[:8], p.get("name","?"), p.get("status","")))
 '
 echo ""
