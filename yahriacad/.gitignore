@@ -36,6 +36,7 @@ htmlcov/
 *.pt
 !ai-engine/training/**/model_v1.pt
 !ai-engine/training/router/model_bc_v6.pt
+!ai-engine/training/router/model_bc_4l.pt
 
 # --- Datasets (volumineux, hors git) ---
 ai-engine/data/raw/*

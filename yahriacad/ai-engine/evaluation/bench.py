@@ -33,11 +33,22 @@ NET_NAME_POOL = [
 ]
 
 
-def make_synthetic_board(seed: int) -> tuple:
+def _layer_names(n: int) -> list[str]:
+    """Noms canoniques des n couches cuivre (F.Cu, In1.Cu…, B.Cu)."""
+    if n <= 1:
+        return ["F.Cu"]
+    return ["F.Cu"] + [f"In{i}.Cu" for i in range(1, n - 1)] + ["B.Cu"]
+
+
+def make_synthetic_board(seed: int, layer_count: int = 2) -> tuple:
     """Deterministically generate a synthetic board with 4-10 nets.
 
     Args:
         seed: RNG seed (same seed -> same board).
+        layer_count: number of copper layers (>=1). Defaults to 2 — the
+            historical curriculum — pass 4 (or more) to teach/evaluate
+            multi-layer routing; pads stay on F.Cu/B.Cu so the expert must
+            cross inner layers with vias.
 
     Returns:
         ``(board_dict, nets_list)`` with 2 pads per net at random positions
@@ -45,12 +56,13 @@ def make_synthetic_board(seed: int) -> tuple:
         track width and clearance.
     """
     rng = random.Random(seed)
+    layer_count = max(1, int(layer_count))
     board = {
         "width_mm": BOARD_W_MM,
         "height_mm": BOARD_H_MM,
-        "layer_count": 2,
+        "layer_count": layer_count,
         "grid_resolution_mm": 0.25,
-        "layer_names": ["F.Cu", "B.Cu"],
+        "layer_names": _layer_names(layer_count),
     }
     n_nets = rng.randint(4, 10)
     names = rng.sample(NET_NAME_POOL, min(n_nets, len(NET_NAME_POOL)))
@@ -96,7 +108,7 @@ def make_synthetic_board(seed: int) -> tuple:
     return board, nets
 
 
-def make_realistic_board(seed: int) -> tuple:
+def make_realistic_board(seed: int, layer_count: int = 2) -> tuple:
     """Deterministically generate a REALISTIC-SCALE board (curriculum 0,25 mm).
 
     Bridges the transfer gap observed between the small synthetic curriculum
@@ -116,6 +128,9 @@ def make_realistic_board(seed: int) -> tuple:
 
     Args:
         seed: RNG seed (same seed -> same board).
+        layer_count: number of copper layers (>=1, default 2). Pads remain
+            on F.Cu/B.Cu; inner layers start empty so the A* expert learns
+            when crossing layers with vias is worth the penalty.
 
     Returns:
         ``(board_dict, nets_list)``.
@@ -123,12 +138,13 @@ def make_realistic_board(seed: int) -> tuple:
     rng = random.Random(seed * 7919 + 13)
     w_mm = round(rng.uniform(70.0, 115.0), 2)
     h_mm = round(rng.uniform(50.0, 85.0), 2)
+    layer_count = max(1, int(layer_count))
     board = {
         "width_mm": w_mm,
         "height_mm": h_mm,
-        "layer_count": 2,
+        "layer_count": layer_count,
         "grid_resolution_mm": 0.25,
-        "layer_names": ["F.Cu", "B.Cu"],
+        "layer_names": _layer_names(layer_count),
     }
     margin = 2.0
     placed: list = []

@@ -150,16 +150,27 @@ def collect_demos(
     rng = random.Random(seed if seed else 12345)
     env = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=clearance_cells, seed=seed))
     order = _route_order(env)
-    if max_nets and max_nets > 0:
-        order = order[:max_nets]
+    if skip_decoys:
+        # Route tout (les leurres congestionnent la carte comme en production)
+        # mais ne prélève les démonstrations que sur les nets non-leurres :
+        # l'ordre « courts d'abord » plaçait les leurres en tête, et la
+        # troncature max_nets ne gardait qu'eux => 0 démonstration.
+        demo_order = [i for i in order if env._nets[i].net_class != "decoy"]
+        if max_nets and max_nets > 0:
+            demo_order = demo_order[:max_nets]
+    elif max_nets and max_nets > 0:
+        demo_order = order[:max_nets]
+    else:
+        demo_order = order
+    demo_set = set(demo_order)
 
     demos: list[dict] = []
     for net_index in order:
         route = env.astar_route(net_index)  # enregistre les obstacles progressifs
         if not route.get("completed"):
             continue
-        if skip_decoys and env._nets[net_index].net_class == "decoy":
-            continue  # net leurre : route (congestion) mais pas de demonstration
+        if net_index not in demo_set:
+            continue  # net leurre (ou au-delà du plafond) : routé mais pas de démo
         obs0 = env.reset(net_index)
         ep = env._episode
         if ep.start is None or not ep.targets:
@@ -916,6 +927,9 @@ def main(argv: list[str] | None = None) -> int:
                        help="ajoute N cartes REALISTES (0,25 mm, 70-115 x 50-85 mm, "
                             "congestion par leurres) au curriculum")
     p_gen.add_argument("--synthetic-seed", type=int, default=42)
+    p_gen.add_argument("--layers", type=int, default=2,
+                       help="nombre de couches cuivre des cartes synthetiques "
+                            "(2 par defaut ; 4+ => curriculum multi-couches)")
     p_gen.add_argument("--max-nets", type=int, default=0,
                        help="plafonne le nombre de nets par carte (0 = tous)")
     p_gen.add_argument("--probes", type=int, default=0,
@@ -966,7 +980,8 @@ def main(argv: list[str] | None = None) -> int:
             from evaluation.bench import make_synthetic_board
 
             for k in range(args.synthetic):
-                board, nets = make_synthetic_board(args.synthetic_seed * 1000 + k)
+                board, nets = make_synthetic_board(args.synthetic_seed * 1000 + k,
+                                                   layer_count=args.layers)
                 got = collect_demos(board, nets, clearance_cells=args.clearance,
                                     max_nets=args.max_nets, probes=args.probes)
                 demos.extend(got)
@@ -976,7 +991,8 @@ def main(argv: list[str] | None = None) -> int:
             from evaluation.bench import make_realistic_board
 
             for k in range(args.synthetic_real):
-                board, nets = make_realistic_board(args.synthetic_seed * 1000 + k)
+                board, nets = make_realistic_board(args.synthetic_seed * 1000 + k,
+                                                   layer_count=args.layers)
                 got = collect_demos(board, nets, clearance_cells=args.clearance,
                                     max_nets=args.max_nets, probes=args.probes,
                                     skip_decoys=True)

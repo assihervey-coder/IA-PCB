@@ -528,7 +528,12 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         optimizer_cfg = config.get("optimizer") or {}
 
         model_path = str(router_cfg.get("model_path", "training/router/model_v1.pt") or "")
-        self._model_path = self._resolve_model_path(model_path)
+        # Registre multi-checkpoints : un modele RL par forme d'observation
+        # (canaux = couches + 4). Le modele adapte a la carte demandee est
+        # choisi a la requete ; les cartes sans checkpoint dedie routent en A*.
+        paths_cfg = [str(p or "").strip() for p in (router_cfg.get("model_paths") or [])]
+        self._model_paths = [p for p in paths_cfg if p] or ([model_path] if model_path else [])
+        self._model_path = self._resolve_model_path(self._model_paths[0]) if self._model_paths else None
         self._device = _detect_device(str(router_cfg.get("device", "auto") or "auto"))
         self._clearance_cells = max(0, int(env_cfg.get("clearance_cells", 1) or 1))
         # Completude multi-pads : la jambe RL est chainee avec des jambes A*
@@ -550,7 +555,9 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             "drc_cost": float(optimizer_cfg.get("drc_cost", 10.0) or 10.0),
             "clearance_mm": float(optimizer_cfg.get("clearance_mm", _DEFAULT_CLEARANCE_MM) or _DEFAULT_CLEARANCE_MM),
         }
-        self._agent = self._load_rl_agent()
+        self._agents = self._load_rl_agents()
+        # Agent primaire (premier checkpoint configure) — compat ascendante.
+        self._agent = next(iter(self._agents.values()), None)
 
     # ------------------------------------------------------------- internals
 
@@ -563,14 +570,17 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             candidate = AI_ENGINE_ROOT / candidate
         return str(candidate) if candidate.is_file() else None
 
-    def _load_rl_agent(self):
-        """Load the trained PPO router when torch + checkpoint are available.
+    def _load_rl_agents(self) -> dict[int, object]:
+        """Charge chaque checkpoint configure, cle = canaux d'observation.
 
-        Returns the agent or ``None`` (the service then falls back to the
-        deterministic A* router; this is the expected mode in production).
+        Le nombre de canaux (= couches cuivre + 4) est detecte directement
+        dans le state_dict (forme de ``conv.0.weight``) : aucun reglage
+        manuel — un checkpoint 2 couches (6 canaux) et un checkpoint 4
+        couches (8 canaux) coexistent et servent chacun leur format de
+        carte. Absent ou illisible => {} (repli A* integral).
         """
-        if not self._model_path:
-            return None
+        if not self._model_paths:
+            return {}
         try:
             import torch  # lazy: only executed when a checkpoint exists
 
@@ -579,25 +589,45 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             except ImportError:  # pragma: no cover - direct import layout
                 from src.agents.ppo_agent import PPOAgent, PPOConfig
 
-            router_cfg = {}
-            try:
-                config = _load_yaml_config(None)
-                router_cfg = config.get("router") or {}
-            except Exception:
-                pass
-            in_channels = max(1, int(router_cfg.get("in_channels", 5) or 5))
-            agent = PPOAgent(
-                PPOConfig(),
-                in_channels=in_channels,
-                n_actions=12,
-                device="cuda" if torch.cuda.is_available() else "cpu",
-            )
-            if agent.load(self._model_path):
-                self._log.info("RL router loaded from %s", self._model_path)
-                return agent
-            self._log.warning("RL router checkpoint unreadable: %s", self._model_path)
+            agents: dict[int, object] = {}
+            for raw_path in self._model_paths:
+                resolved = self._resolve_model_path(raw_path)
+                if resolved is None:
+                    continue
+                channels = self._checkpoint_channels(resolved)
+                if not channels:
+                    self._log.warning("Checkpoint illisible, ignore : %s", resolved)
+                    continue
+                agent = PPOAgent(
+                    PPOConfig(),
+                    in_channels=channels,
+                    n_actions=12,
+                    device="cuda" if torch.cuda.is_available() else "cpu",
+                )
+                if agent.load(resolved):
+                    agents[channels] = agent
+                    self._log.info(
+                        "RL router charge : %s (%d canaux d'observation)",
+                        resolved, channels,
+                    )
+            return agents
         except Exception as exc:
             self._log.warning("RL router unavailable (A* fallback active): %s", exc)
+        return {}
+
+    @staticmethod
+    def _checkpoint_channels(path: str) -> int | None:
+        """Detecte les canaux d'entree d'un checkpoint (conv.0.weight)."""
+        try:
+            import torch
+
+            payload = torch.load(path, map_location="cpu")
+            state = payload.get("model_state_dict", payload) if isinstance(payload, dict) else payload
+            weight = state.get("conv.0.weight")
+            if hasattr(weight, "shape") and len(weight.shape) >= 2:
+                return int(weight.shape[1])
+        except Exception:  # pragma: no cover - checkpoint illisible
+            return None
         return None
 
     def _env_config(self) -> EnvConfig:
@@ -618,7 +648,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         pads restants sont chaines par A* depuis la jambe RL — la politique
         apporte la premiere jambe, l'expert acheve la topologie.
         """
-        agent = self._agent
+        agent = self._agents.get(env.observation_shape[0])
         if agent is None:
             return None
         try:
@@ -715,7 +745,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             status="ok",
             version=self.version,
             device=self._device,
-            model_loaded=self._agent is not None,
+            model_loaded=bool(self._agents),
         )
 
     # ----------------------------------------------------------- placement
@@ -744,7 +774,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             result = pb.PlacementResult(
                 total_wirelength_mm=round(wire_proxy, 4),
                 score=round(cost, 4),
-                strategy="rl" if (str(request.strategy or "") == "rl" and self._agent is not None) else "heuristic",
+                strategy="rl" if (str(request.strategy or "") == "rl" and bool(self._agents)) else "heuristic",
             )
             for comp, (x, y) in zip(components, positions, strict=False):
                 moved = dict(comp)
@@ -803,8 +833,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
 
             use_rl = (
                 str(request.strategy or "") == "rl"
-                and self._agent is not None
-                and env.observation_shape[0] == self._agent.in_channels
+                and self._agents.get(env.observation_shape[0]) is not None
             )
             strategy = "rl" if use_rl else "astar"
             total = len(selected)
@@ -1008,12 +1037,13 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
         return self._model_info()
 
     def ReloadModel(self, request, context) -> pb.ReloadModelResponse:
-        """Hot-reload the RL router checkpoint, without restarting.
+        """Hot-reload the RL router checkpoints, without restarting.
 
-        An optional ``checkpoint_path`` re-targets the service to another
-        ``.pt`` file (absolute or ai-engine relative). The previous agent is
-        kept when the reload fails, so the engine never loses its fallback
-        A* behaviour: worst case ``loaded`` simply stays False.
+        An optional ``checkpoint_path`` becomes the PRIMARY checkpoint
+        (absolute or ai-engine relative). Every configured checkpoint is
+        reloaded, keyed by detected observation channels; the previous
+        agents are kept when the reload fails, so the engine never loses
+        its fallback A* behaviour: worst case ``loaded`` simply stays False.
         """
         requested = str(request.checkpoint_path or "").strip()
         if requested:
@@ -1021,21 +1051,32 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             if resolved is None:
                 info = self._model_info()
                 return pb.ReloadModelResponse(
-                    loaded=self._agent is not None,
+                    loaded=bool(self._agents),
                     message=f"Checkpoint introuvable : {requested} — modèle inchangé.",
                     info=info,
                 )
+            # Devient le checkpoint primaire (deduplique).
+            self._model_paths = [p for p in self._model_paths
+                                 if self._resolve_model_path(p) != resolved]
+            self._model_paths.insert(0, requested)
             self._model_path = resolved
-            self._log.info("ReloadModel: checkpoint cible = %s", resolved)
+            self._log.info("ReloadModel: checkpoint primaire = %s", resolved)
 
-        previous = self._agent
-        self._agent = self._load_rl_agent()
+        previous = self._agents
+        self._agents = self._load_rl_agents()
+        self._agent = next(iter(self._agents.values()), None)
         info = self._model_info()
-        if info.loaded:
-            message = f"Modèle RL rechargé depuis {info.checkpoint_path} ({info.param_count} paramètres)."
-        elif previous is not None:
-            # Reload failed -> restore the previously working agent.
-            self._agent = previous
+        if self._agents:
+            channels = ", ".join(str(c) for c in sorted(self._agents))
+            message = (
+                f"{len(self._agents)} modele(s) RL charge(s) "
+                f"(canaux d'observation : {channels}) — primaire "
+                f"{info.checkpoint_path} ({info.param_count} parametres)."
+            )
+        elif previous:
+            # Reload failed -> restore the previously working agents.
+            self._agents = previous
+            self._agent = next(iter(self._agents.values()), None)
             info = self._model_info()
             message = "Rechargement échoué — modèle précédent conservé."
         else:
@@ -1044,7 +1085,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
                 "absent) — repli déterministe A* actif."
             )
         self._log.info("ReloadModel: %s", message)
-        return pb.ReloadModelResponse(loaded=self._agent is not None, message=message, info=info)
+        return pb.ReloadModelResponse(loaded=bool(self._agents), message=message, info=info)
 
     # ------------------------------------------------------------ properties
 
