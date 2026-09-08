@@ -428,3 +428,22 @@ Stage Summary:
 - origin/main = 5e587ff, arbre local 100% synchronisé, CI verte.
 - Dépôt purgé des artefacts d'outils internes ; .gitignore protège contre la ré-accumulation.
 - Scripts round-trip + preuves de fidélité désormais versionnés sur GitHub.
+
+---
+Task ID: 18
+Agent: Super Z (main)
+Task: Persistance de l'intelligence RL (question utilisateur) — commit/push du checkpoint BC v6 + restauration complète post-502/OOM
+
+Work Log:
+- Bilan demandé par l'utilisateur : code RL/IL dans git ✓ ; datasets npz (19) ✓ ; checkpoint model_bc_v6.pt ABSENT (gitignore *.pt, jamais commité) — perdu au redémarrage sandbox.
+- Reconnaissance : environnement reconstruit après OOM (Go 1.22.10 → .tools/go persistant, grpcio/torch 2.14 CPU, node_modules + next build).
+- Reconstruction BC v6 : merge(v5w 15161 pas + DAgger#2 ×8) = demos_bc_v6.npz 17105 pas ; 3 passes BC × 300 s lr 5e-5 (--init-from cumulatif) ; accuracy train 0.60, loss 1.33→1.20 ; 1 397 241 params (identique à l'original). Piège découvert : le sandbox tue les processus lourds en arrière-plan → entraîner au PREMIER PLAN (budget 300 s/appel).
+- Versionnement : exception .gitignore (!ai-engine/training/router/model_bc_v6.pt) ; commit 1c50a14 (checkpoint 5,6 Mo + npz). Incident : l'auto-commit avait aspiré 5237 fichiers .tools/ (dist Go + gomodcache) → purge db03971 (.tools/ entièrement ignoré). .git = 137 Mo (blobs en historique, nettoyage filter-repo optionnel non fait — force-push destructif).
+- Hot-reload gRPC : scripts/reload_rl_model.py (AIRouterServiceStub). Subtilité : _model_path est VIDÉ au démarrage si le checkpoint est absent → ReloadModel sans argument reste silencieux → passer le CHEMIN EXPLICITE. loaded=true, 1397241 params, healthz ai_model_loaded=true.
+- Seed : fichiers /tmp/kicad-*.kicad_pcb perdus → 3 cartes re-téléchargées du miroir KiCad officiel et VERSIONNÉES dans yahriacad/samples/kicad/ (complex_hierarchy 20241229, video 20241229 5,8 Mo, pic_programmer 20260206) ; seed_demos.sh pointe sur $REPO/samples/kicad + parsing projets robuste ; 3 démos cassées supprimées puis re-seedées.
+- Push final b986c0b (samples + scripts), CI à surveiller.
+
+Stage Summary:
+- La « mémoire d'intelligence » de l'app est désormais PERSISTANTE dans git : checkpoint BC v6 (1c50a14) + datasets (19 npz) + pipeline complet. Un clone frais = app intelligente, plus de re-training requis.
+- 5 démos en ligne : DEMO1 A* 45 ms, DEMO2 RL (vrai modèle), DEMO3 52n/68c, DEMO4 111n/63c, DEMO5 588n/189c (routage long).
+- Leçon sandbox : (a) tout artefact utile doit être dans git (samples, checkpoints) ; (b) training au premier plan uniquement ; (c) toolchain dans .tools/ (persistant mais git-ignoré).
