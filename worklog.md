@@ -447,3 +447,25 @@ Stage Summary:
 - La « mémoire d'intelligence » de l'app est désormais PERSISTANTE dans git : checkpoint BC v6 (1c50a14) + datasets (19 npz) + pipeline complet. Un clone frais = app intelligente, plus de re-training requis.
 - 5 démos en ligne : DEMO1 A* 45 ms, DEMO2 RL (vrai modèle), DEMO3 52n/68c, DEMO4 111n/63c, DEMO5 588n/189c (routage long).
 - Leçon sandbox : (a) tout artefact utile doit être dans git (samples, checkpoints) ; (b) training au premier plan uniquement ; (c) toolchain dans .tools/ (persistant mais git-ignoré).
+
+---
+Task ID: 19
+Agent: Super Z (main)
+Task: KiCad 6→10 vérifié + entraînement BC multi-couches 4 couches lancé et intégré
+
+Work Log:
+- KiCad 6→10 : dispatch kicadVersionTokens complet (5:20171130, 6:20211030+20211230, 7:20221206, 8:20240108, 9:20241229, 10:20260206) ; tests verts (matrice TestKiCadVersions6To10, spécificités 6/7/8/9/10, best-effort future version) — exigée déjà satisfaite, rien à changer.
+- bench.py : layer_count paramétré (make_synthetic_board/make_realistic_board + _layer_names) ; imitation.py generate --layers N.
+- BUG corrigé (collect_demos) : l'ordre « nets courts d'abord » plaçait les leurres en tête → max_nets ne gardait qu'eux → 0 démonstration sur --synthetic-real. Désormais : tout est routé (congestion), démos prélevées hors leurres après filtre.
+- Pipeline 4L (in_channels=8) : 500 démos/47k pas (30 synth + 24 réalistes, seeds 42000/44000) ; probes 8 ; curriculum 2 étages : A synthétique lr 3e-4 480s (acc 0.812) → B réaliste lr 2e-5 (leg1 33/33/25 %) ; 1 ronde DAgger incrémentale (scripts/dagger_round_4l.py, 6302 pas) — DAgger depuis politique faible = effondrement (0.099), à relancer depuis la politique actuelle (roadmap).
+- Évaluations leg1 sur 3 cartes non vues (seeds 46000+) : one-shot mixte 8 %, 2 étages 30 %, référence v6 2L 50 %. Plateau ~30 % shipé : completude garantie par chaînage A* (4/4 nets sur cartes 4L de test, 12 vias = croisements réels).
+- service.py refactor registre : self._agents dict[canal→agent], détection canaux depuis conv.0.weight du state_dict ; use_rl = agents.get(shape[0]) ; ReloadModel multi-checkpoints (checkpoint_path = primaire) ; health/model_loaded bool(self._agents) ; agent primaire conservé pour compat. pytest 9/9.
+- config.yaml : router.model_paths = [v6 (6c), bc_4l (8c)] ; model_path legacy conservé.
+- Live : moteur redémarré, 2 checkpoints chargés au boot ; scripts/test_multimodel_live.py : 4L 4/4 nets 5.8s 12 vias RL engagé, 2L 4/4 nets 4.6s RL engagé. ReloadModel → « 2 modele(s) charges (canaux : 6, 8) ».
+- Pièges : batchs d'édition MultiEdit s'appliquent séquentiellement avant un échec (état partiel → reset git checkout et ré-application édit par édit) ; faucheur sandbox tue background ET process relancés hors start_server.sh ; torch.load strict → construire l'agent avec les canaux du checkpoint.
+- Commit ec462f9 poussé (checkpoint 4L + datasets + code + scripts).
+
+Stage Summary:
+- YahriaCad route maintenant en RL sur 2 ET 4 couches (registre extensible à N couches : ajouter un chemin dans model_paths suffit).
+- KiCad 6→10 confirmé par tests (déjà en place).
+- Roadmap RL 4L : rondes DAgger supplémentaires depuis la politique 30 %, curriculum 0,25 mm plus dense, éventuel fine-tune PPO.
