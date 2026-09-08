@@ -511,6 +511,7 @@ def train_bc(
     seed: int = 0,
     init_from: str | None = None,
     time_budget_s: float = 0.0,
+    arch: str = "base",
 ) -> dict:
     """Entraine le clone comportemental et sauve un checkpoint compatible PPO.
 
@@ -541,9 +542,15 @@ def train_bc(
     train_idx = [i for i, (d, _s) in enumerate(dataset.index) if d not in val_ids]
     val_idx = [i for i, (d, _s) in enumerate(dataset.index) if d in val_ids]
 
-    agent = PPOAgent(PPOConfig(), in_channels=layers, n_actions=12, device="cpu")
-    if init_from and not agent.load(init_from):
-        print(f"[warn] checkpoint initial illisible : {init_from}", flush=True)
+    agent = PPOAgent(PPOConfig(), in_channels=layers, n_actions=12, device="cpu",
+                     arch=str(arch or "base"))
+    if init_from:
+        follow = str(arch or "base") == "base"
+        if not agent.load(init_from, follow_arch=follow):
+            print(f"[warn] checkpoint initial illisible : {init_from}", flush=True)
+        else:
+            print(f"[init-from] {init_from} (archi={agent.arch}, "
+                  f"{'strict/suivi' if follow else 'partiel/transfert'})", flush=True)
     agent.net.train()
 
     optimizer = torch.optim.Adam(agent.net.parameters(), lr=lr)
@@ -947,6 +954,14 @@ def main(argv: list[str] | None = None) -> int:
     p_train.add_argument("--seed", type=int, default=0)
     p_train.add_argument("--init-from", default=None,
                          help="checkpoint de depart (reprise / fine-tune)")
+    p_train.add_argument("--arch", choices=["base", "compass", "wide"],
+                         default="base",
+                         help="architecture du reseau : base = CNN historique "
+                              "(compat checkpoints existants) ; compass = "
+                              "boussole cible (2 canaux dx/dy + tete 1x1) ; "
+                              "wide = tronc elargi 128 canaux. Une archi "
+                              "different du checkpoint --init-from declenche "
+                              "un chargement PARTIEL")
     p_train.add_argument("--time-budget", type=float, default=0.0,
                          help="budget temps en secondes (0 = illimite)")
 
@@ -1022,6 +1037,7 @@ def main(argv: list[str] | None = None) -> int:
             seed=args.seed,
             init_from=args.init_from,
             time_budget_s=args.time_budget,
+            arch=args.arch,
         )
         return 0
 

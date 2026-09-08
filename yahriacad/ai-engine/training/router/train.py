@@ -61,6 +61,16 @@ def main(argv: list[str] | None = None) -> int:
                              "(défaut 2 ; 4 = curriculum 4 couches, observation "
                              "8 canaux — doit correspondre aux canaux du "
                              "checkpoint --init-from, torch.load est strict)")
+    parser.add_argument("--arch", choices=["auto", "base", "compass", "wide"],
+                        default="auto",
+                        help="architecture du réseau : auto = suit l'archi "
+                             "du checkpoint --init-from (défaut, rétro-compat) ; "
+                             "base = CNN historique ; compass = boussole cible "
+                             "(2 canaux dx/dy vers la cible + tête 1x1) ; "
+                             "wide = tronc élargi 128 canaux. Une archi forcée "
+                             "différente du checkpoint --init-from déclenche "
+                             "un chargement PARTIEL (tenseurs compatibles "
+                             "transférés seulement)")
     parser.add_argument("--board", choices=["synthetic", "realistic", "mixed"],
                         default="synthetic",
                         help="distribution d'environnements : synthetic = petites "
@@ -120,11 +130,16 @@ def main(argv: list[str] | None = None) -> int:
     probe_env = PCBRouteEnv(*board_for(0),
                             EnvConfig(clearance_cells=1, seed=args.seed))
     in_channels = probe_env.observation_shape[0]
-    agent = PPOAgent(cfg, in_channels=in_channels, n_actions=12, device="cpu")
+    arch = "base" if args.arch == "auto" else args.arch
+    agent = PPOAgent(cfg, in_channels=in_channels, n_actions=12, device="cpu",
+                     arch=arch)
     if args.init_from:
-        if not agent.load(args.init_from):
+        follow = args.arch == "auto"
+        if not agent.load(args.init_from, follow_arch=follow):
             sys.exit(f"checkpoint initial illisible : {args.init_from}")
-        print(f"[init-from] politique initialisée depuis {args.init_from}", flush=True)
+        print(f"[init-from] politique initialisée depuis {args.init_from} "
+              f"(archi={agent.arch}, "
+              f"{'strict/suivi' if follow else 'partiel/transfert'})", flush=True)
 
     rollout_counter = {"k": 0}
 
