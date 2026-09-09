@@ -93,6 +93,36 @@ def position_plane(height: int, width: int, x: int, y: int) -> np.ndarray:
     return plane
 
 
+CONGESTION_RADIUS = 4
+
+
+def congestion_from_blocked(
+    blocked: np.ndarray, height: int, width: int, radius: int = CONGESTION_RADIUS
+) -> np.ndarray:
+    """Densité locale d'occupation ∈ [0, 1] (box 9x9, table de somme).
+
+    ``blocked`` : masque ``(layer_count, H, W)`` des cellules bloquées.
+    La densité = fraction moyenne des cellules bloquées dans une fenêtre
+    (2r+1)², calculée par summed-area table en O(H*W). Fonction MODULE
+    partagée par l'env (canal d'observation Task 26) et la reconstruction
+    des démos BC (imitation.py) — les deux chemins produisent
+    bit-à-bit le même canal.
+    """
+    occ = blocked.mean(axis=0, dtype=np.float32)
+    table = np.zeros((height + 1, width + 1), dtype=np.float32)
+    table[1:, 1:] = np.cumsum(np.cumsum(occ, axis=0, dtype=np.float32), axis=1)
+    y1 = np.clip(np.arange(height) - radius, 0, height)
+    y2 = np.clip(np.arange(height) + radius + 1, 0, height)
+    x1 = np.clip(np.arange(width) - radius, 0, width)
+    x2 = np.clip(np.arange(width) + radius + 1, 0, width)
+    top = table[y1][:, x1]
+    top_r = table[y1][:, x2]
+    bot = table[y2][:, x1]
+    bot_r = table[y2][:, x2]
+    area = np.outer(y2 - y1, x2 - x1).astype(np.float32)
+    return (bot_r - bot - top_r + top) / area
+
+
 @dataclass
 class EnvConfig:
     """Environment / router configuration.
@@ -111,6 +141,13 @@ class EnvConfig:
             and around the board border.
         seed: optional seed for the environment RNG (reserved for
             stochastic extensions; routing itself is fully deterministic).
+        congestion_channel: when True the observation gains ONE extra
+            channel (index ``layer_count + 4``): local occupancy density —
+            box-sum (9x9) of the stacked obstacle planes, normalized to
+            [0, 1] via a summed-area table (O(H*W)). Lets the policy
+            anticipate dense regions before entering them. Default False:
+            observations stay byte-compatible with the deployed 6/8-channel
+            checkpoints (Task 26).
     """
 
     grid_mm: float = 0.25
@@ -122,6 +159,7 @@ class EnvConfig:
     collision_penalty: float = 2.0
     clearance_cells: int = 1
     seed: int | None = None
+    congestion_channel: bool = False
 
 
 @dataclass
@@ -326,8 +364,12 @@ class PCBRouteEnv:
 
     @property
     def observation_shape(self) -> tuple[int, int, int]:
-        """Observation shape ``(channels, H, W)`` with ``channels = layer_count + 4``."""
-        return (self.layer_count + 4, self.grid_h, self.grid_w)
+        """Observation shape ``(channels, H, W)``.
+
+        ``channels = layer_count + 4`` (+1 when congestion_channel is set).
+        """
+        extra = 1 if self.cfg.congestion_channel else 0
+        return (self.layer_count + 4 + extra, self.grid_h, self.grid_w)
 
     @property
     def episode_path(self) -> list[Cell]:
@@ -364,11 +406,16 @@ class PCBRouteEnv:
                     free[layer, y, x] = False
         return free
 
+    def _congestion_plane(self, blocked: np.ndarray) -> np.ndarray:
+        """Densité locale d'occupation ∈ [0, 1] (box 9x9, table de somme)."""
+        return congestion_from_blocked(blocked, self.grid_h, self.grid_w)
+
     def _observation(self) -> np.ndarray:
         """Build the multi-channel float32 observation for the current state."""
-        channels = self.layer_count + 4
+        channels = self.layer_count + 4 + (1 if self.cfg.congestion_channel else 0)
         obs = np.zeros((channels, self.grid_h, self.grid_w), dtype=np.float32)
         ep = self._episode
+        free = None
         if 0 <= ep.net_index < len(self._nets):
             free = self._free_mask(ep.net_index)
             obs[: self.layer_count] = ~free
@@ -378,6 +425,10 @@ class PCBRouteEnv:
             obs[self.layer_count + 1, ty, tx] = 1.0
         obs[self.layer_count + 2, :, :] = ep.layer / max(1, self.layer_count - 1)
         obs[self.layer_count + 3] = position_plane(self.grid_h, self.grid_w, ep.x, ep.y)
+        if self.cfg.congestion_channel:
+            if free is not None:
+                obs[self.layer_count + 4] = self._congestion_plane(~free)
+            # hors épisode : le canal reste à zéro (pas de densité à signaler)
         return obs
 
     def _nearest_target_distance(self) -> int:

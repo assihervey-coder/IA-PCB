@@ -49,6 +49,7 @@ from src.environment.pcb_env import (  # noqa: E402
     Cell,
     EnvConfig,
     PCBRouteEnv,
+    congestion_from_blocked,
     position_plane,
 )
 
@@ -444,11 +445,15 @@ def _require_torch():
     return torch
 
 
-def _reconstruct_obs(batch_meta, planes, steps, demo_id: int, step_row: int):
+def _reconstruct_obs(batch_meta, planes, steps, demo_id: int, step_row: int,
+                     congestion: bool = False):
     """Reconstruit l'observation float32 ``(C, H, W)`` d'un pas de demo.
 
     Canaux statiques (obstacles, source, cibles) depuis les plans packbits,
     indicateur de couche et position de l'agent depuis l'etat du pas.
+    ``congestion=True`` ajoute le canal ``layers + 4`` recalcule depuis les
+    plans d'obstacles (Task 26) — bit-a-bit identique au canal de l'env
+    (meme fonction module ``congestion_from_blocked``).
     """
     h, w, layers, _step_off, _n, plane_off, plane_bytes = (
         int(v) for v in batch_meta[demo_id]
@@ -456,17 +461,23 @@ def _reconstruct_obs(batch_meta, planes, steps, demo_id: int, step_row: int):
     bits = np.unpackbits(planes[plane_off : plane_off + plane_bytes])
     static = bits[: (layers + 2) * h * w].reshape(layers + 2, h, w)
     x, y, layer = (int(v) for v in steps[step_row])
-    obs = np.zeros((layers + 4, h, w), dtype=np.float32)
+    channels = layers + 4 + (1 if congestion else 0)
+    obs = np.zeros((channels, h, w), dtype=np.float32)
     obs[:layers] = static[:layers]
     obs[layers] = static[layers]
     obs[layers + 1] = static[layers + 1]
     obs[layers + 2, :, :] = layer / max(1, layers - 1)
     obs[layers + 3] = position_plane(h, w, x, y)
+    if congestion:
+        obs[layers + 4] = congestion_from_blocked(static[:layers], h, w)
     return obs
 
 
-def build_torch_dataset(demos_data: dict):
-    """Construit un ``Dataset`` torch ``(obs, action)`` depuis un npz charge."""
+def build_torch_dataset(demos_data: dict, congestion: bool = False):
+    """Construit un ``Dataset`` torch ``(obs, action)`` depuis un npz charge.
+
+    ``congestion=True`` reconstruit layer_count+5 canaux (Task 26).
+    """
     _require_torch()  # verifie torch avant d'importer Dataset
     from torch.utils.data import Dataset
 
@@ -490,7 +501,8 @@ def build_torch_dataset(demos_data: dict):
 
         def __getitem__(self, idx: int):
             demo_id, step_row = self.index[idx]
-            obs = _reconstruct_obs(meta, planes, steps, demo_id, step_row)
+            obs = _reconstruct_obs(meta, planes, steps, demo_id, step_row,
+                                   congestion=congestion)
             return obs, int(actions[step_row])
 
     return _BCDataset()
@@ -513,6 +525,7 @@ def train_bc(
     time_budget_s: float = 0.0,
     arch: str = "base",
     via_weight: float | None = None,
+    congestion: bool = False,
 ) -> dict:
     """Entraine le clone comportemental et sauve un checkpoint compatible PPO.
 
@@ -531,8 +544,9 @@ def train_bc(
 
     data = load_demos(demos_path)
     meta = data["meta"]
-    layers = int(meta[0][2]) + 4  # canaux d'observation = couches + 4
-    dataset = build_torch_dataset(data)
+    # canaux d'observation = couches + 4 (+1 si canal de congestion, Task 26)
+    layers = int(meta[0][2]) + 4 + (1 if congestion else 0)
+    dataset = build_torch_dataset(data, congestion=congestion)
 
     # Split train/validation PAR demo (pas par pas : evite la fuite).
     rng = random.Random(seed)
@@ -544,7 +558,7 @@ def train_bc(
     val_idx = [i for i, (d, _s) in enumerate(dataset.index) if d in val_ids]
 
     agent = PPOAgent(PPOConfig(), in_channels=layers, n_actions=12, device="cpu",
-                     arch=str(arch or "base"))
+                     arch=str(arch or "base"), congestion=congestion)
     if init_from:
         follow = str(arch or "base") == "base"
         if not agent.load(init_from, follow_arch=follow):
@@ -618,7 +632,8 @@ def train_bc(
                 chunk = chunk_list[start : start + batch_size]
                 obs_batch = np.stack(
                     [_reconstruct_obs(meta, data["planes"], data["steps"],
-                                      dataset.index[i][0], dataset.index[i][1])
+                                      dataset.index[i][0], dataset.index[i][1],
+                                      congestion=congestion)
                      for i in chunk]
                 )
                 act_batch = np.asarray(
@@ -988,6 +1003,11 @@ def main(argv: list[str] | None = None) -> int:
                               "Task 25 : 2-3 conseille en passes escaladees ; "
                               "au-dela la CE ponderee fait de via l'argmax "
                               "partout — mesure F=35)")
+    p_train.add_argument("--congestion", action="store_true",
+                         help="reconstruit le canal de congestion depuis les "
+                              "plans d'obstacles des demos (layer_count+5 "
+                              "canaux ; Task 26 — aucune re-collection "
+                              "requise, canal derive bit-a-bit)")
 
     p_eval = sub.add_parser("eval", help="compare A* et BC hors-ligne")
     p_eval.add_argument("--model", default="training/router/model_bc.pt")
@@ -1063,6 +1083,7 @@ def main(argv: list[str] | None = None) -> int:
             time_budget_s=args.time_budget,
             arch=args.arch,
             via_weight=args.via_weight,
+            congestion=args.congestion,
         )
         return 0
 

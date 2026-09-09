@@ -39,11 +39,21 @@ def main() -> int:
     layers = int(sys.argv[2]) if len(sys.argv) > 2 else 4
     seeds = [int(s) for s in sys.argv[3:]] or [46000, 46001, 46002]
 
-    agent = load_ppo_agent(model, in_channels=layers + 4)
-    report = {"model": model, "layers": layers, "boards": [], "total_nets": 0, "total_one_shot": 0}
+    # Auto-détection des canaux depuis le checkpoint (Task 26 : modèles
+    # congestion layer_count+5) ; fallback layer_count+4 (historique).
+    payload = torch.load(model, map_location="cpu", weights_only=False)
+    in_ch = int(payload.get("in_channels") or (layers + 4))
+    congestion = in_ch > layers + 4
+    agent = load_ppo_agent(model, in_channels=in_ch)
+    if congestion:
+        print(f"[eval] modèle congestion détecté ({in_ch} canaux)", file=sys.stderr, flush=True)
+    report = {"model": model, "layers": layers, "congestion": congestion,
+              "boards": [], "total_nets": 0, "total_one_shot": 0}
     for seed in seeds:
         board, nets = make_realistic_board(seed, layer_count=layers)
-        env = PCBRouteEnv(board, nets, EnvConfig(clearance_cells=1, seed=seed))
+        env = PCBRouteEnv(board, nets,
+                          EnvConfig(clearance_cells=1, seed=seed,
+                                    congestion_channel=congestion))
         env.max_steps = min(int(env.max_steps), ROLLOUT_CAP)
         one_shot = 0
         vias, lengths = [], []

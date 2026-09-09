@@ -33,7 +33,7 @@ _ACTOR_CRITIC_CLS: dict = {}
 _ARCHITECTURES = ("base", "compass", "wide", "compass2")
 
 
-def _actor_critic_class(arch: str = "base"):
+def _actor_critic_class(arch: str = "base", congestion: bool = False):
     """Build (once) and return the ``ActorCritic`` nn.Module class for ``arch``.
 
     Architectures :
@@ -56,8 +56,8 @@ def _actor_critic_class(arch: str = "base"):
     arguments de construction.
     """
     arch = str(arch or "base")
-    if arch in _ACTOR_CRITIC_CLS:
-        return _ACTOR_CRITIC_CLS[arch]
+    if (arch, congestion) in _ACTOR_CRITIC_CLS:
+        return _ACTOR_CRITIC_CLS[(arch, congestion)]
     if arch not in _ARCHITECTURES:
         raise ValueError(
             f"architecture inconnue : {arch!r} (choix : {'|'.join(_ARCHITECTURES)})"
@@ -104,11 +104,16 @@ def _actor_critic_class(arch: str = "base"):
             n_actions: int,
             hidden: int = 256,
             pool: int = 6,
+            congestion: bool = False,
         ) -> None:
             super().__init__()
             in_channels = obs_shape[0] if isinstance(obs_shape, (tuple, list)) else int(obs_shape)
             self.n_actions = int(n_actions)
             self.arch = arch
+            # Canal de congestion appended APRES les 4 canaux dynamiques
+            # (Task 26) : tous les indices de canaux doivent rester
+            # EXPLICITES — jamais x[:, -1] (l'index de la position change).
+            self.congestion = bool(congestion)
             self.stride = 8  # 3 convs stride 2
             self.conv = nn.Sequential(
                 nn.Conv2d(in_channels, 32, kernel_size=3, stride=2, padding=1),
@@ -178,7 +183,7 @@ def _actor_critic_class(arch: str = "base"):
             if compass3:
                 # align = cible au xy de l'agent ; dz_hat = align * signe.
                 flat_tgt = tgt.reshape(batch, -1)
-                flat_pos = x[:, -1].reshape(batch, -1)
+                flat_pos = x[:, layer_count + 3].reshape(batch, -1)
                 align = flat_tgt.gather(1, flat_pos.argmax(dim=1, keepdim=True))
                 layer = (x[:, layer_count + 2, 0, 0] * max(1, layer_count - 1)).clamp(0, layer_count - 1)
                 sign = torch.where(layer < 0.5,
@@ -191,11 +196,18 @@ def _actor_critic_class(arch: str = "base"):
 
         def forward(self, x):  # type: (torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]
             batch, channels, height, width = x.shape
-            layer_count = channels - 4
+            # layer_count explicite : channels - 4 (-1 si canal congestion).
+            # L'ancien ``channels - 4`` etait faux pour les modeles
+            # congestion (Task 26) et decalait TOUT le forward (boussole,
+            # masque d'actions, position).
+            layer_count = channels - 4 - (1 if self.congestion else 0)
+            pos_channel = layer_count + 3
             feats = self.conv(x)
             h8, w8 = feats.shape[2], feats.shape[3]
-            # Position de l'agent : centre unique du plan blob (canal -1).
-            flat_pos = x[:, -1].reshape(batch, -1)
+            # Position de l'agent : centre unique du plan blob (canal
+            # layer_count + 3 — PAS le dernier canal, qui peut etre la
+            # congestion).
+            flat_pos = x[:, pos_channel].reshape(batch, -1)
             idx = flat_pos.argmax(dim=1)
             py = idx // width
             px = idx % width
@@ -259,8 +271,8 @@ def _actor_critic_class(arch: str = "base"):
                 mask[:, move_idx * 3 + 2] = torch.where(down_free, 0.0, -1.0e9)
             return mask
 
-    _ACTOR_CRITIC_CLS[arch] = _ActorCritic
-    return _ACTOR_CRITIC_CLS[arch]
+    _ACTOR_CRITIC_CLS[(arch, congestion)] = _ActorCritic
+    return _ACTOR_CRITIC_CLS[(arch, congestion)]
 
 
 def __getattr__(name: str):
@@ -304,12 +316,14 @@ class PPOAgent(BaseAgent):
         n_actions: int = 12,
         device: str | None = None,
         arch: str = "base",
+        congestion: bool = False,
     ) -> None:
         """Build the agent (first torch import happens here).
 
         Args:
             config: PPO hyper-parameters.
-            in_channels: observation channels (``layer_count + 4``).
+            in_channels: observation channels (``layer_count + 4``, ou
+                ``layer_count + 5`` avec le canal de congestion Task 26).
             n_actions: size of the discrete action space.
             device: ``"cpu"``/``"cuda"``; auto-detected when None.
             arch: network architecture (``base`` | ``compass`` | ``wide``).
@@ -317,19 +331,24 @@ class PPOAgent(BaseAgent):
                 l'archi declaree dans le checkpoint quand ``follow_arch``
                 est actif (service/eval n'ont donc RIEN a changer pour
                 charger une archi nouvelle generation).
+            congestion: True quand l'observation porte le canal de
+                congestion (Task 26) — les indices de canaux du forward
+                en dependent (position = layer_count + 3, jamais -1).
+                ``load()`` suit aussi ce drapeau depuis le checkpoint.
         """
         torch = _torch()
         self.cfg = config if config is not None else PPOConfig()
         self.in_channels = int(in_channels)
         self.n_actions = int(n_actions)
         self.arch = str(arch or "base")
+        self.congestion = bool(congestion)
         self.rng = random.Random(self.cfg.seed)
         if device is None:
             device = "cuda" if torch.cuda.is_available() else "cpu"
         self.device = torch.device(device)
         torch.manual_seed(self.cfg.seed)
-        self.net = _actor_critic_class(self.arch)(
-            self.in_channels, self.n_actions
+        self.net = _actor_critic_class(self.arch, self.congestion)(
+            self.in_channels, self.n_actions, congestion=self.congestion
         ).to(self.device)
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.cfg.lr)
 
@@ -479,6 +498,7 @@ class PPOAgent(BaseAgent):
                     "in_channels": self.in_channels,
                     "n_actions": self.n_actions,
                     "arch": self.arch,
+                    "congestion": self.congestion,
                     "config": {
                         "lr": self.cfg.lr,
                         "gamma": self.cfg.gamma,
@@ -514,12 +534,17 @@ class PPOAgent(BaseAgent):
             payload = torch.load(path, map_location=self.device)
             state = payload.get("model_state_dict", payload)
             ckpt_arch = "base"
+            ckpt_congestion = False
             if isinstance(payload, dict):
                 ckpt_arch = str(payload.get("arch", "base"))
-            if follow_arch and ckpt_arch != self.arch:
+                ckpt_congestion = bool(payload.get("congestion", False))
+            if follow_arch and (ckpt_arch != self.arch
+                                or ckpt_congestion != self.congestion):
                 self.arch = ckpt_arch
-                self.net = _actor_critic_class(self.arch)(
-                    self.in_channels, self.n_actions
+                self.congestion = ckpt_congestion
+                self.net = _actor_critic_class(self.arch, self.congestion)(
+                    self.in_channels, self.n_actions,
+                    congestion=self.congestion,
                 ).to(self.device)
                 self.optimizer = torch.optim.Adam(
                     self.net.parameters(), lr=self.cfg.lr

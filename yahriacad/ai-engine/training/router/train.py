@@ -101,6 +101,12 @@ def main(argv: list[str] | None = None) -> int:
                              "perte de valeur (800-18000) et le clipping "
                              "max_grad_norm écrase les gradients "
                              "politique/entropie")
+    parser.add_argument("--congestion", action="store_true",
+                        help="ajoute le canal de congestion à l'observation "
+                             "(layer_count+5 canaux ; Task 26). À utiliser "
+                             "avec un checkpoint --init-from 9 canaux ou "
+                             "from-scratch ; les checkpoints 6/8 canaux "
+                             "restent incompatibles (chargement refusé)")
     args = parser.parse_args(argv)
 
     _require_torch()
@@ -142,11 +148,12 @@ def main(argv: list[str] | None = None) -> int:
                                          layer_count=args.layers)
 
     probe_env = PCBRouteEnv(*board_for(0),
-                            EnvConfig(clearance_cells=1, seed=args.seed))
+                            EnvConfig(clearance_cells=1, seed=args.seed,
+                                      congestion_channel=args.congestion))
     in_channels = probe_env.observation_shape[0]
     arch = "base" if args.arch == "auto" else args.arch
     agent = PPOAgent(cfg, in_channels=in_channels, n_actions=12, device="cpu",
-                     arch=arch)
+                     arch=arch, congestion=args.congestion)
     if args.init_from:
         follow = args.arch == "auto"
         if not agent.load(args.init_from, follow_arch=follow):
@@ -164,7 +171,9 @@ def main(argv: list[str] | None = None) -> int:
         current_board["board"] = board
         current_board["nets"] = nets
         rollout_counter["k"] += 1
-        return PCBRouteEnv(board, nets, EnvConfig(clearance_cells=1, seed=args.seed))
+        return PCBRouteEnv(board, nets,
+                           EnvConfig(clearance_cells=1, seed=args.seed,
+                                     congestion_channel=args.congestion))
 
     # Curriculum par téléportation (Task 24) : place certains épisodes près
     # de la cible (dont l'état pré-via aligné) pour que le PPO expérimente

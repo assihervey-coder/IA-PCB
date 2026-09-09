@@ -630,9 +630,23 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             return None
         return None
 
-    def _env_config(self) -> EnvConfig:
-        """EnvConfig used for every routing request."""
-        return EnvConfig(clearance_cells=self._clearance_cells, seed=0)
+    def _env_config(self, layer_count: int = 0) -> EnvConfig:
+        """EnvConfig used for every routing request.
+
+        ``congestion_channel`` est activée quand un agent RL attend
+        ``layer_count + 5`` canaux (modèle entraîné avec le canal de
+        congestion, Task 26) — sinon les observations restent
+        byte-compatibles avec les checkpoints 6/8 canaux déployés.
+        """
+        congestion = (
+            layer_count > 0
+            and (layer_count + 5) in self._agents
+        )
+        return EnvConfig(
+            clearance_cells=self._clearance_cells,
+            seed=0,
+            congestion_channel=congestion,
+        )
 
     def _rl_route(self, env: PCBRouteEnv, net_index: int) -> dict | None:
         """Greedy RL rollout for one net; ``None`` when it fails to connect.
@@ -802,7 +816,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
             board = _board_to_dict(request.board)
             all_nets = _nets_to_dicts(request.nets)
             job_id = _job_id_from_context(context)
-            env = PCBRouteEnv(board, all_nets, self._env_config())
+            env = PCBRouteEnv(board, all_nets, self._env_config(max(1, int(board.get("layer_count", 2) or 2))))
 
             # Optional debug/imitation-learning hook: dump the exact env
             # inputs this request carries (YAHRIACAD_DUMP_ROUTE_INPUT=<dir>).
@@ -911,7 +925,7 @@ class AIRouterServicer(pb_grpc.AIRouterServiceServicer):
                     value += drc_cost * int(route.get("drc_violations", 0) or 0)
                 return value
 
-            env = PCBRouteEnv(board, nets, self._env_config())
+            env = PCBRouteEnv(board, nets, self._env_config(max(1, int(board.get("layer_count", 2) or 2))))
             env.set_routes(routes)
             index_by_name = {net["name"]: i for i, net in enumerate(nets)}
 
