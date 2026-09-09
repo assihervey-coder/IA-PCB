@@ -285,6 +285,13 @@ class PPOConfig:
     max_grad_norm: float = 0.5
     rollout_len: int = 256
     seed: int = 0
+    # Normalise la perte de valeur par l'écart-type des retours du batch
+    # (Task 25). Sur des épisodes téléportés les retours valent ~+100 : la
+    # perte brute (800-18000) domine la perte totale et, après clipping
+    # max_grad_norm, les gradients politique/entropie sont écrasés. Diviser
+    # le résidu par std(retours) rend la perte O(1) SANS changer l'échelle
+    # prédite par la tête de valeur (GAE reste en unités de récompense).
+    value_return_norm: bool = False
 
 
 class PPOAgent(BaseAgent):
@@ -411,9 +418,15 @@ class PPOAgent(BaseAgent):
         )
         if n > 1:
             advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+        # Échelle de la perte de valeur (constante sur tous les minibatchs
+        # et epochs de cet update : stats stables, zéro hyper-paramètre).
+        ret_scale = 1.0
+        if getattr(self.cfg, "value_return_norm", False) and n > 1:
+            ret_scale = 1.0 / max(float(returns.std()), 1e-6)
 
         generator = torch.Generator(device="cpu").manual_seed(self.cfg.seed)
-        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0, "approx_kl": 0.0}
+        stats = {"policy_loss": 0.0, "value_loss": 0.0, "entropy": 0.0,
+                 "approx_kl": 0.0, "ret_std": 0.0}
         updates = 0
         for _epoch in range(self.cfg.epochs):
             perm = torch.randperm(n, generator=generator).to(self.device)
@@ -426,7 +439,7 @@ class PPOAgent(BaseAgent):
                     ratio, 1.0 - self.cfg.clip_eps, 1.0 + self.cfg.clip_eps
                 ) * advantages[mb]
                 policy_loss = -torch.min(surr1, surr2).mean()
-                value_loss = 0.5 * (returns[mb] - values).pow(2).mean()
+                value_loss = 0.5 * ((returns[mb] - values) * ret_scale).pow(2).mean()
                 loss = (
                     policy_loss
                     + self.cfg.vf_coef * value_loss
@@ -445,6 +458,7 @@ class PPOAgent(BaseAgent):
                 stats["value_loss"] += float(value_loss.item())
                 stats["entropy"] += float(entropy.mean().item())
                 stats["approx_kl"] += float(approx_kl.item())
+                stats["ret_std"] += 1.0 / ret_scale
                 updates += 1
         if updates:
             for key in stats:
@@ -643,7 +657,8 @@ class PPOTrainer:
                     f"reward={mean_reward:.2f} "
                     f"policy_loss={stats.get('policy_loss', 0.0):.4f} "
                     f"value_loss={stats.get('value_loss', 0.0):.4f} "
-                    f"entropy={stats.get('entropy', 0.0):.4f}"
+                    f"entropy={stats.get('entropy', 0.0):.4f} "
+                    f"ret_std={stats.get('ret_std', 0.0):.2f}"
                 )
             env = self.env_factory()
         return self.history

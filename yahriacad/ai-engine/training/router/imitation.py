@@ -512,6 +512,7 @@ def train_bc(
     init_from: str | None = None,
     time_budget_s: float = 0.0,
     arch: str = "base",
+    via_weight: float | None = None,
 ) -> dict:
     """Entraine le clone comportemental et sauve un checkpoint compatible PPO.
 
@@ -565,6 +566,23 @@ def train_bc(
     ).astype(np.float64)
     weights = 1.0 / np.sqrt(np.maximum(counts, 1.0))
     weights = weights / weights.mean()
+    if via_weight is not None and via_weight > 0:
+        # Task 25 : MULTIPLICATEUR des classes via au-dessus des ratios
+        # inverse-sqrt (moyenne calculee sur les classes AVEC echantillons :
+        # la CE ponderee est invariante par echelle globale, seuls les
+        # RATIOS comptent — les 6 classes fantomes (compte 0) ne changeaient
+        # rien a la perte, juste aux chiffres imprimes). F=1 reproduit les
+        # ratios historiques (via:mouvement ~x4-5, via-acc 0.00-0.08) ;
+        # F=2-3 double/triple l'emphase via sans basculer l'argmax de Bayes
+        # sur via aux etats generiques (p_via ~2,6 % x F vs masse des
+        # mouvements) — mesure : F=35 en poids final => politique "via
+        # partout" (via-acc 0.76, mouvements 0.00) des la passe 1.
+        real = counts > 0
+        base = 1.0 / np.sqrt(np.maximum(counts, 1.0))
+        base = base / base[real].mean()
+        weights = np.where(real, base, 1.0)
+        weights[_VIA_UP_ACTION] *= via_weight
+        weights[_VIA_DOWN_ACTION] *= via_weight
     loss_fn = torch.nn.CrossEntropyLoss(
         weight=torch.as_tensor(weights, dtype=torch.float32)
     )
@@ -964,6 +982,12 @@ def main(argv: list[str] | None = None) -> int:
                               "un chargement PARTIEL")
     p_train.add_argument("--time-budget", type=float, default=0.0,
                          help="budget temps en secondes (0 = illimite)")
+    p_train.add_argument("--via-weight", type=float, default=None,
+                         help="multiplicateur des classes via dans la perte "
+                              "(F=1 = ratios historiques inverse-sqrt ; "
+                              "Task 25 : 2-3 conseille en passes escaladees ; "
+                              "au-dela la CE ponderee fait de via l'argmax "
+                              "partout — mesure F=35)")
 
     p_eval = sub.add_parser("eval", help="compare A* et BC hors-ligne")
     p_eval.add_argument("--model", default="training/router/model_bc.pt")
@@ -1038,6 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
             init_from=args.init_from,
             time_budget_s=args.time_budget,
             arch=args.arch,
+            via_weight=args.via_weight,
         )
         return 0
 

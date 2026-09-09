@@ -94,6 +94,13 @@ def main(argv: list[str] | None = None) -> int:
                              "de la cible (curriculum Task 24 : 50 %% états "
                              "pré-via alignés, 50 %% dernier tiers du corridor "
                              "A* ; 0 = off). Nécessite --board realistic")
+    parser.add_argument("--value-return-norm", action="store_true",
+                        help="normalise la perte de valeur par l'écart-type "
+                             "des retours du batch (Task 25) : sans ça, les "
+                             "retours téléportés (~+100) font exploser la "
+                             "perte de valeur (800-18000) et le clipping "
+                             "max_grad_norm écrase les gradients "
+                             "politique/entropie")
     args = parser.parse_args(argv)
 
     _require_torch()
@@ -113,6 +120,8 @@ def main(argv: list[str] | None = None) -> int:
         cfg.vf_coef = args.vf_coef
     if args.epochs is not None:
         cfg.epochs = args.epochs
+    if args.value_return_norm:
+        cfg.value_return_norm = True
 
     board_makers = {
         "synthetic": make_synthetic_board,
