@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
                              "(défaut 2 ; 4 = curriculum 4 couches, observation "
                              "8 canaux — doit correspondre aux canaux du "
                              "checkpoint --init-from, torch.load est strict)")
-    parser.add_argument("--arch", choices=["auto", "base", "compass", "wide"],
+    parser.add_argument("--arch", choices=["auto", "base", "compass", "wide", "compass2"],
                         default="auto",
                         help="architecture du réseau : auto = suit l'archi "
                              "du checkpoint --init-from (défaut, rétro-compat) ; "
@@ -89,6 +89,11 @@ def main(argv: list[str] | None = None) -> int:
                              "gradients détruisent le tronc partagé)")
     parser.add_argument("--epochs", type=int, default=None,
                         help="epochs PPO par mise à jour (2 conseillé en fine-tuning)")
+    parser.add_argument("--teleport-frac", type=float, default=0.0,
+                        help="probabilité de démarrer un épisode téléporté près "
+                             "de la cible (curriculum Task 24 : 50 %% états "
+                             "pré-via alignés, 50 %% dernier tiers du corridor "
+                             "A* ; 0 = off). Nécessite --board realistic")
     args = parser.parse_args(argv)
 
     _require_torch()
@@ -142,11 +147,54 @@ def main(argv: list[str] | None = None) -> int:
               f"{'strict/suivi' if follow else 'partiel/transfert'})", flush=True)
 
     rollout_counter = {"k": 0}
+    current_board = {"k": -1, "board": None, "nets": None}
 
     def env_factory() -> PCBRouteEnv:
         board, nets = board_for(rollout_counter["k"])
+        current_board["k"] = rollout_counter["k"]
+        current_board["board"] = board
+        current_board["nets"] = nets
         rollout_counter["k"] += 1
         return PCBRouteEnv(board, nets, EnvConfig(clearance_cells=1, seed=args.seed))
+
+    # Curriculum par téléportation (Task 24) : place certains épisodes près
+    # de la cible (dont l'état pré-via aligné) pour que le PPO expérimente
+    # les transitions rares que la politique ne visite jamais seule.
+    episode_start_hook = None
+    if args.teleport_frac > 0:
+        import random as _random
+
+        tp_rng = _random.Random(args.seed + 777)
+        leg_cache: dict = {}
+
+        def teleport_hook(env, net_index: int) -> None:
+            if tp_rng.random() >= args.teleport_frac:
+                return
+            key = (current_board["k"], net_index)
+            if key not in leg_cache:
+                ep = env._episode
+                leg = None
+                if ep.start is not None and ep.targets:
+                    source = (ep.x, ep.y, ep.layer)
+                    target = min(ep.targets,
+                                 key=lambda t: (env._pad_dist(source, t), t))
+                    leg = env._astar(net_index, source, target)
+                leg_cache[key] = leg
+            leg = leg_cache[key]
+            if not leg or len(leg) < 8:
+                return
+            via_idx = [j - 1 for j in range(1, len(leg))
+                       if leg[j][2] != leg[j - 1][2]]
+            if via_idx and tp_rng.random() < 0.5:
+                j = tp_rng.choice(via_idx)
+            else:
+                j = tp_rng.randrange(int(len(leg) * 0.66), len(leg) - 1)
+            ep = env._episode
+            ep.x, ep.y, ep.layer = (int(v) for v in leg[j])
+
+        episode_start_hook = teleport_hook
+        print(f"[teleport] curriculum actif : frac={args.teleport_frac} "
+              "(50 % pré-via / 50 % dernier tiers)", flush=True)
 
     # Longueur de rollout par défaut adaptée à la taille des grilles : les
     # cartes réalistes (grilles 300x400) consomment ~3 Mo par pas d'obs —
@@ -156,7 +204,8 @@ def main(argv: list[str] | None = None) -> int:
         rollout_len = 256 if args.board == "synthetic" else 64
 
     trainer = PPOTrainer(env_factory, agent, total_steps=args.steps,
-                         rollout_len=rollout_len)
+                         rollout_len=rollout_len,
+                         episode_start_hook=episode_start_hook)
 
     history: dict[str, list] = {"steps": [], "episode_reward": []}
 

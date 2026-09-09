@@ -954,7 +954,7 @@ def main(argv: list[str] | None = None) -> int:
     p_train.add_argument("--seed", type=int, default=0)
     p_train.add_argument("--init-from", default=None,
                          help="checkpoint de depart (reprise / fine-tune)")
-    p_train.add_argument("--arch", choices=["base", "compass", "wide"],
+    p_train.add_argument("--arch", choices=["base", "compass", "wide", "compass2"],
                          default="base",
                          help="architecture du reseau : base = CNN historique "
                               "(compat checkpoints existants) ; compass = "

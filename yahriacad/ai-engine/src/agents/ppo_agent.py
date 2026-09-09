@@ -30,7 +30,7 @@ def _torch():
 _ACTOR_CRITIC_CLS: dict = {}
 
 # Architectures disponibles (voir :func:`_actor_critic_class`).
-_ARCHITECTURES = ("base", "compass", "wide")
+_ARCHITECTURES = ("base", "compass", "wide", "compass2")
 
 
 def _actor_critic_class(arch: str = "base"):
@@ -65,7 +65,8 @@ def _actor_critic_class(arch: str = "base"):
     torch = _torch()
     nn = torch.nn
     wide = arch == "wide"
-    compass = arch == "compass"
+    compass = arch in ("compass", "compass2")
+    compass3 = arch == "compass2"
     deep = 128 if wide else 64
 
     class _ActorCritic(nn.Module):
@@ -135,8 +136,9 @@ def _actor_critic_class(arch: str = "base"):
             # Branch locale : logits par cellule a la resolution 1/8.
             self.local_head = nn.Conv2d(deep, self.n_actions, kernel_size=1)
             if compass:
-                # Boussole cible : feats (deep) + plan (dx, dy) -> logits.
-                self.target_head = nn.Conv2d(deep + 2, self.n_actions, kernel_size=1)
+                # Boussole cible : feats (deep) + plan (dx, dy[, dz]) -> logits.
+                self.target_head = nn.Conv2d(deep + (3 if compass3 else 2),
+                                             self.n_actions, kernel_size=1)
             self.fusion = nn.Sequential(
                 nn.Linear(hidden + deep, hidden), nn.ReLU()
             )
@@ -144,12 +146,19 @@ def _actor_critic_class(arch: str = "base"):
             self.value_head = nn.Linear(hidden, 1)
 
         def _target_compass(self, x, layer_count: int, h8: int, w8: int):
-            """Boussole (B, 2, h8, w8) : vecteur unitaire vers la cible.
+            """Boussole (B, 2 ou 3, h8, w8) : vecteur unitaire vers la cible.
 
             Le centroide des cellules cibles restantes (canal
             ``layer_count + 1``) est compare aux centres des cellules 1/8 ;
             aucun parametre appris ici — le reseau n'a plus qu'a apprendre
             a SUIVRE la direction (et a la negocier avec les murs).
+
+            ``compass2`` ajoute un 3e canal ``dz_hat`` : detection de
+            l'ALIGNEMENT vertical — une cible au meme (x, y) que l'agent
+            mais sur une autre couche (cas du via terminal, pathologie GND
+            du Task 24). Le signe est deterministe sur le curriculum
+            realiste (pads sur couches 0/1) : couche 0 -> via-up,
+            sinon via-down.
             """
             batch, _c, height, width = x.shape
             dt = x.dtype
@@ -166,6 +175,17 @@ def _actor_critic_class(arch: str = "base"):
             dxx = (tx.view(batch, 1) - cx8.view(1, w8)).view(batch, 1, w8).expand(batch, h8, w8)
             dist = torch.sqrt(dxx * dxx + dyy * dyy).clamp(min=1.0)
             plane = torch.stack((dxx / dist, dyy / dist), dim=1)
+            if compass3:
+                # align = cible au xy de l'agent ; dz_hat = align * signe.
+                flat_tgt = tgt.reshape(batch, -1)
+                flat_pos = x[:, -1].reshape(batch, -1)
+                align = flat_tgt.gather(1, flat_pos.argmax(dim=1, keepdim=True))
+                layer = (x[:, layer_count + 2, 0, 0] * max(1, layer_count - 1)).clamp(0, layer_count - 1)
+                sign = torch.where(layer < 0.5,
+                                   torch.ones_like(layer),
+                                   -torch.ones_like(layer))
+                dz_hat = (align.view(batch) * sign).view(batch, 1, 1, 1).expand(batch, 1, h8, w8)
+                plane = torch.cat((plane, dz_hat), dim=1)
             empty = (mass <= 0).view(batch, 1, 1, 1)
             return torch.where(empty, torch.zeros_like(plane), plane)
 
@@ -524,6 +544,7 @@ class PPOTrainer:
         total_steps: int = 100_000,
         rollout_len: int | None = None,
         log=print,
+        episode_start_hook=None,
     ) -> None:
         """Args:
         env_factory: callable returning a fresh ``PCBRouteEnv``-like env.
@@ -531,12 +552,17 @@ class PPOTrainer:
         total_steps: total environment steps to collect before stopping.
         rollout_len: steps per rollout (defaults to ``agent.cfg.rollout_len``).
         log: callable used for periodic progress lines (default ``print``).
+        episode_start_hook: optionnel ``hook(env, net_index)`` appelé après
+            chaque ``env.reset`` — permet un curriculum par téléportation
+            (placer l'agent près de la cible / à l'état pré-via pour que le
+            PPO expérimente les transitions rares comme le via terminal).
         """
         self.env_factory = env_factory
         self.agent = agent
         self.total_steps = int(total_steps)
         self.rollout_len = int(rollout_len or agent.cfg.rollout_len)
         self.log = log if log is not None else print
+        self.episode_start_hook = episode_start_hook
         self.log_interval = 5
         self.rng = random.Random(agent.cfg.seed)
         self.history: dict[str, list] = {
@@ -560,7 +586,11 @@ class PPOTrainer:
         episode_reward = 0.0
         episodes = 0
         completed_rewards = []
-        obs = env.reset(self.rng.randrange(env.n_nets))
+        net_index = self.rng.randrange(env.n_nets)
+        obs = env.reset(net_index)
+        if self.episode_start_hook is not None:
+            self.episode_start_hook(env, net_index)
+            obs = env._observation()
         for _ in range(self.rollout_len):
             action, logprob, value = self.agent.act_with_info(obs)
             next_obs, reward, terminated, truncated, _info = env.step(action)
@@ -571,7 +601,11 @@ class PPOTrainer:
                 completed_rewards.append(episode_reward)
                 episode_reward = 0.0
                 episodes += 1
-                obs = env.reset(self.rng.randrange(env.n_nets))
+                net_index = self.rng.randrange(env.n_nets)
+                obs = env.reset(net_index)
+                if self.episode_start_hook is not None:
+                    self.episode_start_hook(env, net_index)
+                    obs = env._observation()
         last_value = 0.0 if bool(buffer.dones and buffer.dones[-1]) else self.agent.value_of(obs)
         mean_reward = float(np.mean(completed_rewards)) if completed_rewards else 0.0
         return buffer, mean_reward, episodes, last_value
