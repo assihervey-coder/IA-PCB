@@ -551,3 +551,45 @@ Stage Summary:
 - La recette « toute nouvelle archi validée en ~30 min » est opérationnelle et a déjà servi : compass et wide validés puis rejetés avec preuve. Le plafond one-shot 4L 23,6 % est un CLIFF DE LONGUEUR DE TRAJET (nets ≥ 60 cells : 0 %), pas un plafond d'architecture — les 30 nets réussis sont triviaux (dist moy 4,4).
 - Prochain levier réel (Task 24 candidate) : la BOUCLE, pas le réseau — (a) shaping orienté fin d'épisode (bonus décroissant de distance à la cible, pas seulement progression locale), (b) curriculum pondéré par distance (surexposer les nets 60-150, dé-pondérer les triviaux déjà acquis), (c) DAgger ciblé sur les corridors longs (états A* le long des nets moyens uniquement), (d) éventuellement cap d'éval adaptatif dist*3+50 pour distinguer « trop long » de « perdu ».
 - Le one-shot n'est jamais qu'un accélérateur (complétude production garantie par chaînage A*) : réussir les nets 60-150 diviserait la charge A* sur les cartes réalistes.
+
+---
+Task ID: 24
+Agent: Super Z (main)
+Task: Pivot architecture (mandat utilisateur : « plus de pas PPO ne servira plus rien ») — diagnostic du cliff, archi compass2, DAgger téléporté, curriculum PPO
+
+Work Log:
+- DIAGNOSTIC approfondi du cliff 23,6 % (suite Task 23) : scripts/diag_prefix.py + trace_homing.py — le cliff = VIOPHOBIE (l'agent posé sur la mauvaise couche ne pose JAMAIS de via ; 15/35 échecs multi-couches ont une xy cible correcte mais jamais de transition z) + DÉGÉNÉRESCENCE CARREFOUR (un mauvais tournant => attracteur tout droit, la politique ne revient jamais sur la colonne cible) ; 7 nets cliff ont un leg A* > 300 pas (one-shot impossible sous cap 300 par construction).
+- ARCHI compass2 : 3e canal de boussole dz_hat (alignement vertical + signe déterministe couches 0/1), calculé DANS le forward depuis les canaux obs — zéro changement env/démos, +12 params, rétro-compat follow_arch prouvée.
+- scripts/dagger_teleport_4l.py : collecte densifiée zones via/cible/carrefours + fenêtres de déviation étiquetées A* (33,7k états ciblés) ; scripts/extract_via_demos.py : démos de vias extraites des routes A*.
+- PPOTrainer episode_start_hook + train.py --teleport-frac : curriculum téléporté (50 % états pré-via alignés / 50 % dernier tiers du corridor A*) — la transition via (+85 de récompense) est enfin expérimentée par le PPO (récompenses 115-148/chunk).
+- scripts/soften_heads.py + noise_heads.py : température du bruit sur les têtes — le gradient d'entropie est NUL sur one-hot (le BC sur-convergé est un puits PPO, leçon Task 23 outillée).
+- SHIP : AUCUN (champion c3 23,6 % inchangé). Code + scripts committés (35c5a45a).
+
+Stage Summary:
+- Le cliff one-shot a maintenant UNE explication causale double (viophobie + carrefours) et 7 nets sont hors de portée par construction (leg A* > cap 300).
+- L'outillage compass2/teleport/soften rend la Task 25 possible : BC compass2 pondéré via + PPO à normalisation de valeur.
+- Roadmap Task 25 : BC compass2 from-scratch sur le mix v5 (v2 + téléport + via) avec via_weight, puis PPO --value-return-norm ; cible : dépasser 23,6 %.
+
+---
+Task ID: 25
+Agent: Super Z (main)
+Task: BC compass2 from-scratch (via ×F + normalisation valeur PPO) — reprise post-interruption, campagnes e/f/g/h, verdict
+
+Work Log:
+- REPRISE : session précédente interrompue à 07:51 (commit auto UUID => amendé en e5c94151 : instrumentation + datasets + measure_corridor_h). État restauré : bc1/bc2/bc3 (compass2, 3 passes BC sur demos_4l_v5, 6669 démos) déjà entraînés ; worklog Task 24 backfillé (section ci-dessus, reconstruite du commit 35c5a45a).
+- Sanité : entropie corridor (measure_corridor_h.py, s46000) bc1 1,63 > bc2 1,21 > bc3 0,87 >> champion c3 0,148 — aucun puits PPO, init utilisable.
+- ÉVAL BC c2w_bc3 : s46000 11/58 (19,0 %), s46001 16/69 (23,2 %) => 27/127 = 21,3 % : MEILLEUR BC JAMAIS (+7,1 pts vs BC v2 14,2 %, à -2,3 pts du champion PPO c3 SANS un seul pas de PPO). Le via_weight + démos téléport/via + compass2 traversent.
+- ⚠️ OOM reproduit sur tout chunk PPO (kill à ~1,9 Go RSS en 12 s) : forensique mem_watch.py + trace_mem_train.py — pcb_env.py:370 alloue 1,27 Mo/étape (obs 8×271×300) + activations conv du backward PPO (batch 64) = pic structurel ~2,7 Go ; le next-server (dev, 937 Mo) avait réduit l'enveloppe disponible à 2,4 Go. FIX opérationnel : frontend down pendant les chunks (3,4 Go dispo, marge 700 Mo). Aucun bug de code : collection et update isolés = bornés.
+- Campagne e (téléport frac 0.5 + valnorm, depuis bc3, seeds 47/48/49) : récompenses 115,9-131,7, entropie 0,42-1,34, value_loss O(1) (0,5-4,1 vs 800-18000 sans norm — l'instrumentation fait son travail) MAIS éval DÉGRADÉE : s46000 bc3 19,0 % => e1 17,2 % => e3 15,5 % (décroissance monotone). Le curriculum téléporté à frac 0.5 déplace la distribution d'états loin du comportement one-shot mesuré.
+- Campagne f (SANS téléport + valnorm, depuis bc3, ent 0.005, seeds 47/48/49) : récompense 138,3 dès f1 (bc3 route des épisodes complets AVEC vias nativement — vs 21-45 au début de la campagne c3) mais éval f3 = 17,2 % : le bonus d'entropie (0.005) DOMINE le gradient de politique quand les récompenses sont déjà hautes — la politique se soften (entropie 0,87 => 1,1) au lieu de se raffiner.
+- Campagne g (ent-coef 0.001, depuis bc3, seeds 47/48/49) : g2 (8k pas) = s46000 15/58 (25,9 %, +3,5 pts vs c3 sur cette seed), s46001 15/69 (21,7 %) => 30/127 = 23,6 % : ÉGALITÉ EXACTE avec le champion (distribution différente : +2/-2). g3 (12k pas) retombe à 19,0 % — le pic PPO-depuis-BC-fort est à ~8k pas.
+- Campagne h (polissage doux depuis g2, lr 5e-5, 1 chunk seed 44) : 29/127 (15/58 + 14/69) — pas de dépassement.
+- VERDICT : AUCUN SHIP STRICT (g2 = 30/127 = c3, h1 = 29/127) — champion c3 CONSERVÉ (model_bc_4l.pt inchangé). Discipline respectée : ne shipper que sur amélioration stricte.
+- Stack restaurée après les chunks : toolchain Go réinstallée (/home/z/toolchain/go 1.22.5 — le sandbox n'a persisté que my-project), deps Python moteur (grpcio/torch) réinstallées, frontend yahriacad/frontend BUILDÉ en prod (next build) + start_server.sh => STACK COMPLÈTE (50051/8080/3000), proxy 200, healthz ok, live 4L 4/4 + 2L 4/4 RL engagé, pytest 9/9.
+- Versionné : mem_watch.py, trace_mem_train.py (forensique RAM), worklog. Intermédiaires locaux gitignés : bc1-3, e1-e3, f1-f3, g1-g3, h1.
+
+Stage Summary:
+- BC compass2 from-scratch = 21,3 % one-shot (record BC, +7,1 pts) : le poids via + démos téléport + boussole dz_hat couvrent la MOITIÉ du chemin BC=>PPO sans aucun RL.
+- Deux leviers PPO négatifs ÉTABLIS par preuve : téléport frac 0.5 (dégrade, décroissance monotone) et ent-coef 0.005 depuis un BC fort (soften la politique) ; le couple gagnant = ent-coef 0.001 × ~8k pas × --value-return-norm => 23,6 % (égalité, profil +2/-2 vs c3).
+- Le plafond 30/127 est retrouvé par une 4e politique indépendante (c3 base, compass, wide, g2 compass2) : triangulation renforcée — les nets suivants exigent autre chose (nets ≥ 60 cells : 0 % ; multi-couches : 0 %, 7 nets hors cap par construction).
+- Ops : pic RAM chunk PPO ~2,7 Go documenté (front down pendant l'entraînement) ; stack complète restaurée et vérifiée bout-en-bout.
